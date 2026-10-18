@@ -74,7 +74,7 @@ try:
     srv.mode = "denied"; rc, out = INSTALL()
     rec("server che rifiuta il token: esito 4", rc == 4 and "Scarico del server MCP non riuscito" in out and not os.path.exists(INST + ".new"), "rc=%s\n%s" % (rc, out))
     srv.mode = "ok"
-    n0 = len(srv.hits); rc, out = INSTALL({"MCP_TOKEN": "myrmm_zz"})
+    n0 = len(srv.hits); rc, out = INSTALL({"MCP_TOKEN": "myrmm_zz"})   # scan:ok (valore di prova)
     rec("token con formato sbagliato: esito 2, nessuna richiesta al server", rc == 2 and "MCP_TOKEN" in out and len(srv.hits) == n0, "rc=%s\n%s" % (rc, out))
     rc, out = INSTALL({"MCP_URL": "https://x'y"})
     rec("indirizzo con apice: esito 2", rc == 2 and "MCP_URL" in out, "rc=%s\n%s" % (rc, out))
@@ -91,4 +91,6 @@ finally:
     try: run("Get-Process myrmm-mcp -ErrorAction SilentlyContinue | Stop-Process -Force; Remove-Item '%s' -Recurse -Force -ErrorAction SilentlyContinue" % DIR)
     except Exception: pass
 
-print("\n%d ok, %d falliti" % (ok, bad)); sys.exit(1 if bad else 0)
+print("\n%d ok, %d falliti" % (ok, bad))
+print("::notice title=Script MCP su Windows::PowerShell %s; %d controlli riusciti, %d falliti" % (psv.replace("\r", " ").replace("\n", " "), ok, bad))
+sys.exit(1 if bad else 0)
