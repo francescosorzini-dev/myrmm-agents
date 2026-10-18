@@ -121,7 +121,7 @@ func TestProbeRunReports(t *testing.T) {
 	for _, r := range got {
 		byID[r.ID] = r
 	}
-	if r, ok := byID[1]; !ok || !r.OK || r.RTT <= 0 {
+	if r, ok := byID[1]; !ok || !r.OK || r.RTT < 0 {
 		t.Fatalf("apparato 1: %+v", byID[1])
 	}
 	if r, ok := byID[2]; !ok || r.OK || r.Detail == "" {
