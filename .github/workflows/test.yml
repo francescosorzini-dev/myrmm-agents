@@ -24,7 +24,7 @@ jobs:
       - name: Prova dello scanner
         run: python3 ci/scan_secrets_test.py
       - name: Scansione della storia
-        run: python3 ci/scan_secrets.py . --allow-path ci/scan_secrets_test.py
+        run: python3 ci/scan_secrets.py . --allow-path 'ci/*_test.py'   # i file di prova contengono valori finti voluti
 
   compila:
     name: Compilazione per tutte le piattaforme
