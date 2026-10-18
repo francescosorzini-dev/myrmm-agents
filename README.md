@@ -21,7 +21,7 @@ cd agent && go vet ./... && go test ./...
 python3 ci/mcp_go_parity_test.py
 python3 ci/scan_secrets_test.py && python3 ci/scan_secrets.py . --allow-path ci/scan_secrets_test.py
 ```
-Il workflow `Test` fa la stessa cosa su Ubuntu, Windows (2022 e 2025) e macOS (Apple Silicon e Intel).
+Il workflow `Test` fa la stessa cosa su Ubuntu, Windows (2022 e 2025) e macOS (Apple Silicon e Intel). Su Windows prova anche, con Windows PowerShell 5.1 e un server finto, gli script di installazione e rimozione del server MCP (`ci/windows_install_test.py`, script in `ci/fixtures/`): download con verifica dell'hash, sostituzione di un eseguibile in uso, permessi della configurazione, errori.
 
 ## Configurazione dell'agent
 
