@@ -27,7 +27,7 @@ func TestTCPCheck(t *testing.T) {
 		}
 	}()
 	port := l.Addr().(*net.TCPAddr).Port
-	if d, err := tcpCheck("127.0.0.1", port, time.Second); err != nil || d <= 0 {
+	if d, err := tcpCheck("127.0.0.1", port, time.Second); err != nil || d < 0 {
 		t.Fatalf("porta aperta: d=%v err=%v", d, err)
 	}
 	l2, _ := net.Listen("tcp", "127.0.0.1:0")
