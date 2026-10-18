@@ -1,0 +1,94 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read        # nessun segreto, nessuna scrittura: il repository è pubblico
+
+jobs:
+  segreti:
+    name: Nessun segreto nella storia
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prova dello scanner
+        run: python3 ci/scan_secrets_test.py
+      - name: Scansione della storia
+        run: python3 ci/scan_secrets.py . --allow-path ci/scan_secrets_test.py
+
+  compila:
+    name: Compilazione per tutte le piattaforme
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: agent/go.sum
+      - name: Agent e server MCP, cinque piattaforme
+        shell: bash
+        run: |
+          set -euo pipefail
+          for t in windows/amd64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${t%/*}; arch=${t#*/}; ext=$([ "$os" = windows ] && echo .exe || true)
+            (cd agent  && CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "../out/myrmm-agent-$os-$arch$ext" .)
+            (cd mcp/go && CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "../../out/myrmm-mcp-$os-$arch$ext" .)
+          done
+          ls -l out
+
+  prove:
+    name: Prove su ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, windows-2025, macos-15, macos-15-intel]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: agent/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Agent, analisi e unit test
+        working-directory: agent
+        run: |
+          go vet ./...
+          go test -count=1 ./...
+      - name: Server MCP, analisi e avvio
+        working-directory: mcp/go
+        run: |
+          go vet ./...
+          go build -trimpath -o "$RUNNER_TEMP/myrmm-mcp" .
+          "$RUNNER_TEMP/myrmm-mcp" --version
+      - name: Server MCP, parità con la versione Python
+        run: python ci/mcp_go_parity_test.py
+      - name: Script di disinstallazione generato dall'agent, sintassi PowerShell
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: agent
+        run: |
+          $f = Join-Path $env:RUNNER_TEMP 'uninstall.ps1'
+          $env:MYRMM_TEST_SCRIPT_OUT = $f
+          go test -count=1 -run TestUninstallScript -v ./...
+          foreach ($sh in 'powershell.exe','pwsh') {
+            & $sh -NoProfile -Command "`$e=`$null;`$t=`$null;[void][System.Management.Automation.Language.Parser]::ParseFile('$f',[ref]`$t,[ref]`$e); if(`$e){`$e | ForEach-Object { `$_.Message }; exit 1} else {'sintassi ok'}"
+            if ($LASTEXITCODE -ne 0) { throw "errore di sintassi in $sh" }
+          }

@@ -1,0 +1,7 @@
+{
+  "server_url": "https://rmm.example.com/index.php",
+  "enroll_token": "<ENROLL_TOKEN: lo mostra la console del server>",
+  "poll_seconds": 60,
+  "job_signing_key": "<JOB_SIGNING_KEY: la stessa di config.php sul server>",
+  "full_inventory_hour": 12
+}

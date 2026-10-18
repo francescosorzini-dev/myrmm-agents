@@ -1,0 +1,13 @@
+*.exe
+out/
+dist/
+__pycache__/
+*.pyc
+config.json
+myrmm-mcp.json
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+.env

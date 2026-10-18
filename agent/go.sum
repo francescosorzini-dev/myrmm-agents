@@ -1,0 +1,10 @@
+github.com/golang/crypto v0.14.0 h1:l/G9X0WudWXTW8h1LkKnkKowkGaFhvOhBEijDNyPGGg=
+github.com/golang/crypto v0.14.0/go.mod h1:MVFd36DqK4CsrnJYDkBA3VC4m2GkXAM0PvzMCn4JQf4=
+github.com/golang/sys v0.0.0-20201015000850-e3ed0017c211 h1:6McfjaHcwtjxuwjUsHAGDoLATJQxj6oanR+xcpTrAY0=
+github.com/golang/sys v0.0.0-20201015000850-e3ed0017c211/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+github.com/golang/sys v0.13.0 h1:1BBIcTgs49E550QZ/PmOU+JguR646CCboZQmR3CRUVM=
+github.com/golang/sys v0.13.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+github.com/gosnmp/gosnmp v1.37.0 h1:/Tf8D3b9wrnNuf/SfbvO+44mPrjVphBhRtcGg22V07Y=
+github.com/gosnmp/gosnmp v1.37.0/go.mod h1:GDH9vNqpsD7f2HvZhKs5dlqSEcAS6s6Qp099oZRCR+M=
+github.com/kardianos/service v1.2.2 h1:ZvePhAHfvo0A7Mftk/tEzqEZ7Q4lgnR8sGz4xu1YX60=
+github.com/kardianos/service v1.2.2/go.mod h1:CIMRFEJVL+0DS1a3Nx06NaMn4Dz63Ng6O7dl0qH0zVM=
