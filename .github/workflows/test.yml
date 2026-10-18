@@ -70,8 +70,16 @@ jobs:
       - name: Agent, analisi e unit test
         working-directory: agent
         run: |
-          go vet ./...
-          go test -count=1 ./...
+          set +e
+          go vet ./... > "$RUNNER_TEMP/vet.log" 2>&1; rc1=$?
+          go test -count=1 ./... > "$RUNNER_TEMP/test.log" 2>&1; rc2=$?
+          cat "$RUNNER_TEMP/vet.log" "$RUNNER_TEMP/test.log"
+          if [ $rc1 -ne 0 ] || [ $rc2 -ne 0 ]; then
+            # il testo dell'errore diventa un'annotazione leggibile anche senza scaricare i log
+            msg=$(grep -vE '^(ok|=== )' "$RUNNER_TEMP/vet.log" "$RUNNER_TEMP/test.log" | head -c 3500 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=agent vet=$rc1 test=$rc2::$msg"
+            exit 1
+          fi
       - name: Server MCP, analisi e avvio
         working-directory: mcp/go
         run: |
