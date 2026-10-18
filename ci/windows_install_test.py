@@ -32,7 +32,7 @@ def mat(name, vals):
     body = re.sub(r"\{\{\s*([A-Za-z_]\w*)\s*(\|\s*linea\s*)?\}\}", sub, body)
     return body.replace("^https://", "^https?://")
 def run(script, timeout=240):
-    enc = base64.b64encode(("$ProgressPreference='SilentlyContinue'; " + script).encode("utf-16-le")).decode()
+    enc = base64.b64encode(("$ProgressPreference='SilentlyContinue'; try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }; " + script).encode("utf-16-le")).decode()
     r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-OutputFormat", "Text", "-EncodedCommand", enc],
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, stdin=subprocess.DEVNULL)
     return r.returncode, (r.stdout + r.stderr).strip()

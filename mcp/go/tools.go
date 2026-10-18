@@ -148,13 +148,13 @@ func tools() []tool {
 			schema: obj([]string{"id"}, "id", tI(), "include", tS()), run: one("device", "id", "include"), noteAfter: true},
 		{name: "myrmm_list_alerts", desc: "Alert. status: open (predefinito), resolved, all. Filtri severity (info, warn, crit) e device_id.",
 			schema: obj(nil, "status", tS(), "severity", tS(), "device_id", tI(), "limit", tI()), run: one("alerts", "status", "severity", "device_id", "limit")},
-		{name: "myrmm_list_scripts", desc: "Script della libreria con piattaforma e variabili richieste (body=true per il testo).",
-			schema: obj(nil, "body", tB()), run: func(s *server, a *omap) (int, any, error) {
+		{name: "myrmm_list_scripts", desc: "Script della libreria con piattaforma, etichette e variabili richieste (body=true per il testo). Filtri: tag (una o più etichette separate da virgola, es. \"linux,sicurezza\": servono tutte) e q (parte del nome o della descrizione).",
+			schema: obj(nil, "body", tB(), "tag", tS(), "q", tS()), run: func(s *server, a *omap) (int, any, error) {
 				var b any
 				if truthy(a.val("body")) {
 					b = json.Number("1")
 				}
-				st, j := s.call("scripts", "GET", nil, qp{"body", b})
+				st, j := s.call("scripts", "GET", nil, qp{"body", b}, qp{"tag", a.val("tag")}, qp{"q", a.val("q")})
 				return st, j, nil
 			}},
 		{name: "myrmm_backup_status", desc: "Stato dei backup letto dal software di ogni device.", schema: obj(nil), run: one("backup")},

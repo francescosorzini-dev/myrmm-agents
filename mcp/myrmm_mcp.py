@@ -59,7 +59,7 @@ def t_sites(a): return call("sites")
 def t_devices(a): return call("devices", site=a.get("site"), q=a.get("q"), platform=a.get("platform"), online=a.get("online"), limit=a.get("limit"))
 def t_device(a): return call("device", id=a.get("id"), include=a.get("include"))
 def t_alerts(a): return call("alerts", status=a.get("status"), severity=a.get("severity"), device_id=a.get("device_id"), limit=a.get("limit"))
-def t_scripts(a): return call("scripts", body=1 if a.get("body") else None)
+def t_scripts(a): return call("scripts", body=1 if a.get("body") else None, tag=a.get("tag"), q=a.get("q"))
 def t_backup(a): return call("backup")
 def t_audit(a): return call("audit", limit=a.get("limit"), since=a.get("since"))
 def t_job(a): return call("job", id=a.get("id"), wait=a.get("wait", 0))
@@ -103,7 +103,7 @@ TOOLS = {
     "myrmm_list_devices": ("Elenca i device. Filtri: site, q (parte del nome), platform (windows, linux, darwin), online (1 o 0).", obj({"site": S, "q": S, "platform": S, "online": I, "limit": I}), t_devices),
     "myrmm_get_device": ("Scheda di un device: inventario, alert aperti, ultimi job. include: system,hardware,security,software,all.", obj({"id": I, "include": S}, ["id"]), t_device),
     "myrmm_list_alerts": ("Alert. status: open (predefinito), resolved, all. Filtri severity (info, warn, crit) e device_id.", obj({"status": S, "severity": S, "device_id": I, "limit": I}), t_alerts),
-    "myrmm_list_scripts": ("Script della libreria con piattaforma e variabili richieste (body=true per il testo).", obj({"body": B}), t_scripts),
+    "myrmm_list_scripts": ("Script della libreria con piattaforma, etichette e variabili richieste (body=true per il testo). Filtri: tag (una o più etichette separate da virgola, es. \"linux,sicurezza\": servono tutte) e q (parte del nome o della descrizione).", obj({"body": B, "tag": S, "q": S}), t_scripts),
     "myrmm_backup_status": ("Stato dei backup letto dal software di ogni device.", obj(), t_backup),
     "myrmm_run_script": ("Esegue uno script di libreria su un device. dry_run è VERO per impostazione predefinita (PowerShell con WhatIf, Linux/macOS con MYRMM_DRYRUN=1: fermano solo i comandi che li rispettano). Sui clienti di collaudo parte subito e attende l'esito; altrove resta in attesa dell'approvazione umana.",
                          obj({"device_id": I, "script_id": I, "vars": {"type": "object"}, "dry_run": B, "wait": I}, ["device_id", "script_id"]), t_run),
@@ -125,7 +125,7 @@ def handle(m):
     meth, mid, p = m.get("method"), m.get("id"), m.get("params") or {}
     if mid is None: return None   # notifiche
     if meth == "initialize":
-        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.54.2"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
+        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.55.0"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
     if meth == "ping": return {}
     if meth == "tools/list":
         return {"tools": [{"name": n, "description": d, "inputSchema": s} for n, (d, s, _) in TOOLS.items()]}

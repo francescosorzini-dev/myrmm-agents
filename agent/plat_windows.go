@@ -136,13 +136,17 @@ func encodePowerShell(script string) string {
 	return base64.StdEncoding.EncodeToString(buf)
 }
 
+// psPrefix precede ogni script: niente barre di avanzamento e output in UTF-8 senza BOM (altrimenti le lettere accentate
+// arrivano nella tabella codici OEM del computer, es. 850, e il server le vede sbagliate).
+const psPrefix = "$ProgressPreference='SilentlyContinue'; try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }; "
+
 // platCommand prepara il comando PowerShell per uno script.
 // -OutputFormat Text evita che stderr arrivi come CLIXML ("#< CLIXML ...");
 // $ProgressPreference silenzia le barre di avanzamento (Invoke-WebRequest, moduli) che altrimenti finiscono in stderr.
 func platCommand(ctx context.Context, script string) (*exec.Cmd, func()) {
 	cmd := exec.CommandContext(ctx, "powershell.exe",
 		"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-OutputFormat", "Text",
-		"-EncodedCommand", encodePowerShell("$ProgressPreference='SilentlyContinue'; "+script))
+		"-EncodedCommand", encodePowerShell(psPrefix+script))
 	return cmd, func() {}
 }
 
