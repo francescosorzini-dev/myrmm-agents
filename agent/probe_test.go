@@ -55,7 +55,7 @@ func TestPingLoopback(t *testing.T) {
 	if err != nil {
 		t.Skipf("ping non disponibile in questo ambiente: %v", err)
 	}
-	if d <= 0 || d > time.Second {
+	if d < 0 || d > time.Second { // su Windows il timer ha risoluzione ~15 ms: 0 è un valore valido per il loopback
 		t.Fatalf("rtt inatteso %v", d)
 	}
 }

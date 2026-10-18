@@ -11,7 +11,9 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +89,9 @@ func fakeSSH(t *testing.T) int {
 }
 
 func TestDeployUnixDryAndRun(t *testing.T) {
+	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
+		t.Skip("il test fa girare lo script su questa macchina e richiede root (la parte non-root è coperta dal controllo uid dello script)")
+	}
 	port := fakeSSH(t)
 	ctx := context.Background()
 	st, d := deployUnix(ctx, "127.0.0.1", &unixCred{U: "tester", P: "pw", Port: port}, "dry", "", "http://x/")
@@ -128,6 +133,9 @@ func TestSealedRoundTrip(t *testing.T) {
 }
 
 func TestDeployRunSealedUnix(t *testing.T) {
+	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
+		t.Skip("il test fa girare lo script su questa macchina e richiede root (la parte non-root è coperta dal controllo uid dello script)")
+	}
 	t.Setenv("MYRMM_DIR", t.TempDir())
 	port := fakeSSH(t)
 	pubB, _ := base64.StdEncoding.DecodeString(probePubB64())

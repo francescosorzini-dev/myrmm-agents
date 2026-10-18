@@ -76,7 +76,7 @@ jobs:
           cat "$RUNNER_TEMP/vet.log" "$RUNNER_TEMP/test.log"
           if [ $rc1 -ne 0 ] || [ $rc2 -ne 0 ]; then
             # il testo dell'errore diventa un'annotazione leggibile anche senza scaricare i log
-            msg=$(grep -vE '^(ok|=== )' "$RUNNER_TEMP/vet.log" "$RUNNER_TEMP/test.log" | head -c 3500 | sed ':a;N;$!ba;s/\n/%0A/g')
+            msg=$(grep -hvE '^(ok|=== |go: downloading)' "$RUNNER_TEMP/vet.log" "$RUNNER_TEMP/test.log" | head -c 3500 | awk '{printf "%s%%0A", $0}')
             echo "::error title=agent vet=$rc1 test=$rc2::$msg"
             exit 1
           fi
