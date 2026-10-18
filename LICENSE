@@ -1,0 +1,28 @@
+myrmm agent e server MCP — Licenza proprietaria / Proprietary license
+
+Copyright (c) 2026 Francesco Sorzini. Tutti i diritti riservati. / All rights reserved.
+
+ITALIANO
+Questo repository è reso visibile pubblicamente solo per consentire la verifica automatica del codice. Non è software libero né
+open source. Nessuna licenza, espressa o implicita, è concessa su di esso, salvo quanto segue.
+È consentito unicamente: (1) leggere il codice nel repository; (2) quanto GitHub riconosce a ogni utente per le sue condizioni
+d'uso (visualizzare e creare una copia di appoggio, «fork», all'interno di GitHub).
+È vietato, senza autorizzazione scritta del titolare: usare, eseguire, installare o distribuire il software o parti di esso, in forma
+sorgente o compilata; copiarlo, modificarlo, tradurlo o crearne opere derivate; pubblicarlo o ridistribuirlo altrove; venderlo,
+concederlo in licenza o usarlo per offrire servizi a terzi; usarlo per addestrare modelli o per costruire prodotti concorrenti;
+rimuovere o alterare questo avviso.
+Le librerie di terze parti incluse restano soggette alle rispettive licenze (vedi THIRD-PARTY-NOTICES.md).
+IL SOFTWARE È FORNITO «COSÌ COM'È», SENZA GARANZIE DI ALCUN TIPO, ESPRESSE O IMPLICITE. IL TITOLARE NON RISPONDE DI ALCUN DANNO
+DERIVANTE DALL'USO O DALL'IMPOSSIBILITÀ DI USARLO. Per richieste di autorizzazione: aprire una segnalazione riservata
+(vedi SECURITY.md) o scrivere al titolare.
+
+ENGLISH
+This repository is publicly visible only to allow automated verification of the code. It is neither free nor open-source software.
+No license, express or implied, is granted, except as follows. You may only: (1) read the code in the repository; (2) do what the
+GitHub Terms of Service grant every user (view it and create a fork inside GitHub).
+Without the owner's written permission you may not: use, run, install or distribute the software or any part of it, in source or
+compiled form; copy, modify, translate it or create derivative works; publish or redistribute it elsewhere; sell it, sublicense it
+or use it to provide services to third parties; use it to train models or to build competing products; remove or alter this notice.
+Bundled third-party libraries remain under their own licenses (see THIRD-PARTY-NOTICES.md).
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. THE OWNER IS NOT LIABLE FOR ANY DAMAGES ARISING
+FROM ITS USE OR INABILITY TO USE IT.

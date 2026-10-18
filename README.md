@@ -29,7 +29,7 @@ Vedi `agent/config.example.json`: `server_url`, `enroll_token` e `job_signing_ke
 
 ## Licenza
 
-Non ancora scelta: finché non c'è un file `LICENSE` valgono tutti i diritti riservati.
+Proprietaria, tutti i diritti riservati: vedi `LICENSE`. Il codice è visibile solo per la verifica automatica; non è open source e non se ne autorizza l'uso.
 
 ## Sicurezza
 
