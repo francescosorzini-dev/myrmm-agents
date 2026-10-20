@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -241,6 +242,10 @@ var (
 	visible      bool
 )
 
+// La finestra e il ciclo dei messaggi devono stare sullo stesso thread del sistema: senza questo il goroutine
+// principale può migrare tra un thread e l'altro e le SendMessage verso la propria finestra restano appese.
+func init() { runtime.LockOSThread() }
+
 func main() {
 	// stesso nome del mutex della tray PowerShell: le due non possono girare insieme
 	h, _, merr := pCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(u16(`Local\myrmm-tray`))))
@@ -269,6 +274,7 @@ func main() {
 	hMain = windows.HWND(hw)
 	logf("finestra creata: %v, dir=%s", hw != 0, dir)
 	buildControls(inst)
+	logf("controlli creati")
 
 	setBase := func() bool {
 		if cl != nil {
