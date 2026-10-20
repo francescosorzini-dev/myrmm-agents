@@ -28,6 +28,14 @@ jobs:
           $st | Format-List
           "::notice title=Stato Defender::" + (($st | Format-List | Out-String).Trim() -replace "`r?`n",'%0A')
           try { Update-MpSignature -ErrorAction Stop; 'firme aggiornate' } catch { "aggiornamento firme: $_" }
+      - name: Protezione in tempo reale
+        shell: powershell
+        continue-on-error: true
+        run: |
+          try { Set-MpPreference -DisableRealtimeMonitoring $false -DisableScriptScanning $false -MAPSReporting Advanced -SubmitSamplesConsent NeverSend -ErrorAction Stop; 'impostato' } catch { "impossibile: $_" }
+          Start-Sleep -Seconds 5
+          $st = Get-MpComputerStatus
+          "::notice title=Tempo reale::RealTimeProtectionEnabled=$($st.RealTimeProtectionEnabled) BehaviorMonitor=$($st.BehaviorMonitorEnabled) IoavProtection=$($st.IoavProtectionEnabled) TamperProtected=$($st.IsTamperProtected)"
       - name: Prepara le versioni da confrontare
         shell: bash
         run: |
