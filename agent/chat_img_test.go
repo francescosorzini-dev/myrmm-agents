@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -104,12 +107,12 @@ func TestChatSendImageAndServe(t *testing.T) {
 	if w := chatReq(t, h, "POST", "/send", map[string]any{"text": " "}); w.Code != http.StatusBadRequest {
 		t.Fatalf("messaggio vuoto: atteso 400, %d", w.Code)
 	}
-	big := base64.StdEncoding.EncodeToString(append(append([]byte{}, tinyPNG...), bytes.Repeat([]byte{1}, chatImgMax)...))
+	big := base64.StdEncoding.EncodeToString(append(append([]byte{}, tinyPNG...), bytes.Repeat([]byte{1}, chatImgRawMax)...))
 	if w := chatReq(t, h, "POST", "/send", map[string]any{"img": big}); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("troppo grande: atteso 413, %d", w.Code)
 	}
 	chatMu.Lock()
-	if len(chatLog) != 1 || chatLog[0].Img == "" || chatLog[0].Kind != "shot" {
+	if len(chatLog) != 1 || chatLog[0].Img == "" || chatLog[0].Kind != "shot" || !strings.HasSuffix(chatLog[0].Img, ".jpg") {
 		chatMu.Unlock()
 		t.Fatalf("log inatteso: %+v", chatLog)
 	}
@@ -123,7 +126,7 @@ func TestChatSendImageAndServe(t *testing.T) {
 		t.Fatalf("state: %s", w.Body.String())
 	}
 	// /img serve solo immagini citate dalla conversazione
-	if w := chatReq(t, h, "GET", "/img?n="+name, nil); w.Code != 200 || w.Header().Get("Content-Type") != "image/png" || !bytes.Equal(w.Body.Bytes(), tinyPNG) {
+	if w := chatReq(t, h, "GET", "/img?n="+name, nil); w.Code != 200 || w.Header().Get("Content-Type") != "image/jpeg" || chatImgType(w.Body.Bytes()) != "jpg" {
 		t.Fatalf("img: %d %s", w.Code, w.Header().Get("Content-Type"))
 	}
 	_ = os.WriteFile(filepath.Join(chatImgDir(), "estraneo.png"), tinyPNG, 0o600)
@@ -214,5 +217,29 @@ func TestChatImgCleanRemovesOrphansAndOld(t *testing.T) {
 	defer chatMu.Unlock()
 	if chatImgExists(keep) || chatLog[0].Img != "" {
 		t.Fatalf("doveva essere eliminata: %+v", chatLog[0])
+	}
+}
+
+func TestChatImgNormalizeResizesBigScreens(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 3840, 2160))
+	for y := 0; y < 2160; y += 7 {
+		for x := 0; x < 3840; x++ {
+			src.Set(x, y, color.RGBA{uint8(x), uint8(y), 90, 255})
+		}
+	}
+	var pb bytes.Buffer
+	if err := png.Encode(&pb, src); err != nil {
+		t.Fatal(err)
+	}
+	out, ok := chatImgNormalize(pb.Bytes())
+	if !ok || len(out) > chatImgMax || chatImgType(out) != "jpg" {
+		t.Fatalf("normalize: ok=%v len=%d", ok, len(out))
+	}
+	im, _, err := image.Decode(bytes.NewReader(out))
+	if err != nil || im.Bounds().Dx() != 1600 || im.Bounds().Dy() != 900 {
+		t.Fatalf("dimensioni: %v %v", im.Bounds(), err)
+	}
+	if _, ok := chatImgNormalize([]byte("\x89PNG\r\n\x1a\nrotto")); ok {
+		t.Fatal("un PNG corrotto non deve passare")
 	}
 }

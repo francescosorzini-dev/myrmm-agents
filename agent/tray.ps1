@@ -166,15 +166,6 @@ function Show-Viewer([string]$n) {
     } catch { }
 }
 
-function Capture-Screen {
-    $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
-    $bmp = New-Object System.Drawing.Bitmap($b.Width, $b.Height)
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
-    $g.Dispose()
-    return $bmp
-}
-
 # anteprima obbligatoria: nulla parte verso l'assistenza senza che l'utente abbia visto l'immagine e premuto Invia
 function Confirm-Image($img, [string]$title, [bool]$retry) {
     $d = New-Object System.Windows.Forms.Form
@@ -199,7 +190,7 @@ function Confirm-Image($img, [string]$title, [bool]$retry) {
     $bNo = New-Object System.Windows.Forms.Button; $bNo.Text = 'Annulla'; $bNo.DialogResult = 'Cancel'; $bNo.Width = 90
     $fl.Controls.Add($bOk); $fl.Controls.Add($bNo)
     if ($retry) {
-        $bRe = New-Object System.Windows.Forms.Button; $bRe.Text = 'Rifai (tra 3 s)'; $bRe.DialogResult = 'Retry'; $bRe.AutoSize = $true
+        $bRe = New-Object System.Windows.Forms.Button; $bRe.Text = 'Rifai'; $bRe.DialogResult = 'Retry'; $bRe.AutoSize = $true
         $fl.Controls.Add($bRe)
     }
     $pnl.Controls.Add($fl); $pnl.Controls.Add($cap); $pnl.Controls.Add($cap2)
@@ -211,50 +202,47 @@ function Confirm-Image($img, [string]$title, [bool]$retry) {
     return @{ res = [string]$res; text = $txt }
 }
 
-function Encode-Image($img) {
-    $max = 1600; $q = 80
-    $enc = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
-    for ($i = 0; $i -lt 3; $i++) {
-        $k = [Math]::Min(1.0, $max / [Math]::Max($img.Width, $img.Height))
-        $w = [int][Math]::Max(1, $img.Width * $k); $h = [int][Math]::Max(1, $img.Height * $k)
-        $bmp = New-Object System.Drawing.Bitmap($w, $h)
-        $g = [System.Drawing.Graphics]::FromImage($bmp)
-        $g.Clear([System.Drawing.Color]::White)
-        $g.InterpolationMode = 'HighQualityBicubic'
-        $g.DrawImage($img, 0, 0, $w, $h)
-        $g.Dispose()
-        $ep = New-Object System.Drawing.Imaging.EncoderParameters(1)
-        $ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]$q)
-        $ms = New-Object System.IO.MemoryStream
-        $bmp.Save($ms, $enc, $ep)
-        $bmp.Dispose()
-        if ($ms.Length -le 1300000) { return [Convert]::ToBase64String($ms.ToArray()) }
-        $max = [int]($max * 0.7); $q = 65
+function Send-Image($img, [string]$kind, [string]$text) {
+    # l'immagine parte come PNG: e' l'agent a ridurla e comprimerla (nessuna codifica JPEG in questo script)
+    $ms = New-Object System.IO.MemoryStream
+    $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    if ($ms.Length -gt 14000000) { [System.Windows.Forms.MessageBox]::Show("L'immagine e' troppo grande per essere inviata.", 'Assistenza') | Out-Null; return }
+    $b64 = [Convert]::ToBase64String($ms.ToArray())
+    $r = Call-Agent '/send' @{ text = $text; img = $b64; kind = $kind } 60
+    if ($r) { Poll $true } else { [System.Windows.Forms.MessageBox]::Show("Impossibile inviare l'immagine (se e' molto grande, riduci l'area o riprova).", 'Assistenza') | Out-Null }
+}
+
+# cattura con lo strumento di Windows (Win+Maiusc+S): l'utente sceglie l'area, l'immagine arriva negli appunti
+Add-Type -Namespace Myrmm -Name Clip -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();'
+function Get-ClipImageAfterSnip {
+    $seq = [Myrmm.Clip]::GetClipboardSequenceNumber()
+    $started = $false
+    try { Start-Process 'ms-screenclip:'; $started = $true } catch { }
+    if (-not $started) { [System.Windows.Forms.SendKeys]::SendWait('{PRTSC}') }
+    $end = (Get-Date).AddSeconds(90)
+    while ((Get-Date) -lt $end) {
+        Start-Sleep -Milliseconds 300
+        [System.Windows.Forms.Application]::DoEvents()
+        if ([Myrmm.Clip]::GetClipboardSequenceNumber() -ne $seq -and [System.Windows.Forms.Clipboard]::ContainsImage()) {
+            return [System.Windows.Forms.Clipboard]::GetImage()
+        }
     }
     return $null
 }
 
-function Send-Image($img, [string]$kind, [string]$text) {
-    $b64 = Encode-Image $img
-    if (-not $b64) { [System.Windows.Forms.MessageBox]::Show("L'immagine e' troppo grande per essere inviata.", 'Assistenza') | Out-Null; return }
-    $r = Call-Agent '/send' @{ text = $text; img = $b64; kind = $kind } 40
-    if ($r) { Poll $true } else { [System.Windows.Forms.MessageBox]::Show("Impossibile inviare l'immagine: riprova tra poco.", 'Assistenza') | Out-Null }
-}
-
 function Do-Screenshot {
   try {
-    $wasVisible = $form.Visible
     $form.Hide()
-    Start-Sleep -Milliseconds 450
-    $bmp = $null
+    Start-Sleep -Milliseconds 300
+    $img = $null
     do {
-        if ($bmp) { $bmp.Dispose() }
-        $bmp = Capture-Screen
-        $r = Confirm-Image $bmp 'Anteprima screenshot' $true
-        if ($r.res -eq 'Retry') { $ni.ShowBalloonTip(2500, 'Assistenza', 'Nuovo screenshot tra 3 secondi...', [System.Windows.Forms.ToolTipIcon]::Info); Start-Sleep -Seconds 3 }
+        $img = Get-ClipImageAfterSnip
+        if (-not $img) { $ni.ShowBalloonTip(4000, 'Assistenza', 'Nessuno screenshot catturato.', [System.Windows.Forms.ToolTipIcon]::Info); break }
+        $r = Confirm-Image $img 'Anteprima screenshot' $true
+        if ($r.res -eq 'Retry') { $img.Dispose(); $img = $null }
     } while ($r.res -eq 'Retry')
-    if ($r.res -eq 'OK') { Send-Image $bmp 'shot' $r.text }
-    $bmp.Dispose()
+    if ($img -and $r.res -eq 'OK') { Send-Image $img 'shot' $r.text }
+    if ($img) { $img.Dispose() }
     Show-Chat
   } catch { try { Show-Chat } catch { } }
 }

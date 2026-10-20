@@ -7,6 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"net"
 	"net/http"
@@ -46,6 +52,60 @@ const (
 )
 
 var chatImgName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}(\.(png|jpg|gif|webp))?$`)
+
+const chatImgRawMax = 14 << 20 // PNG grezzo dalla tray: l'agent lo riduce e lo comprime
+
+// chatImgNormalize: decodifica (PNG, JPEG, GIF), riduce il lato lungo a 1600 px su fondo bianco e ricomprime in JPEG
+// fino a stare sotto chatImgMax. La riduzione sta qui e non nello script della tray: gli antivirus segnalano come
+// «screenshot tool» gli script PowerShell che catturano e codificano immagini.
+func chatImgNormalize(raw []byte) ([]byte, bool) {
+	src, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, false
+	}
+	side := 1600
+	for try := 0; try < 4; try++ {
+		out := chatImgScale(src, side)
+		for _, q := range []int{80, 65, 50} {
+			var buf bytes.Buffer
+			if jpeg.Encode(&buf, out, &jpeg.Options{Quality: q}) == nil && buf.Len() <= chatImgMax {
+				return buf.Bytes(), true
+			}
+		}
+		side = side * 7 / 10
+	}
+	return nil, false
+}
+
+func chatImgScale(src image.Image, side int) *image.RGBA {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	nw, nh := w, h
+	if m := max(w, h); m > side {
+		nw, nh = max(1, w*side/m), max(1, h*side/m)
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
+	draw.Draw(dst, dst.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	if nw == w && nh == h {
+		draw.Draw(dst, dst.Bounds(), src, b.Min, draw.Over)
+		return dst
+	}
+	for y := 0; y < nh; y++ { // media sull'area di origine che copre il pixel di destinazione
+		y0, y1 := b.Min.Y+y*h/nh, b.Min.Y+max(y*h/nh+1, (y+1)*h/nh)
+		for x := 0; x < nw; x++ {
+			x0, x1 := b.Min.X+x*w/nw, b.Min.X+max(x*w/nw+1, (x+1)*w/nw)
+			var r, g, bl, n uint32
+			for yy := y0; yy < y1; yy++ {
+				for xx := x0; xx < x1; xx++ {
+					cr, cg, cb, ca := src.At(xx, yy).RGBA() // premoltiplicati: sul bianco si compone da sé
+					r, g, bl, n = r+cr+(0xffff-ca), g+cg+(0xffff-ca), bl+cb+(0xffff-ca), n+1
+				}
+			}
+			dst.SetRGBA(x, y, color.RGBA{uint8(r / n >> 8), uint8(g / n >> 8), uint8(bl / n >> 8), 255})
+		}
+	}
+	return dst
+}
 
 func chatImgDir() string { return filepath.Join(dataDir(), "chatimg") }
 
@@ -354,7 +414,7 @@ func chatHandler(cfg *Config) http.Handler {
 			Img    string // immagine in base64 (screenshot o file scelto, già ridotta dalla tray)
 			Kind   string
 		}
-		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 3<<20)).Decode(&in) != nil {
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 24<<20)).Decode(&in) != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -365,10 +425,20 @@ func chatHandler(cfg *Config) http.Handler {
 		img, kind := "", ""
 		if in.Img != "" {
 			raw, err := base64.StdEncoding.DecodeString(in.Img)
-			if err != nil || len(raw) > chatImgMax {
+			if err != nil || len(raw) > chatImgRawMax {
 				http.Error(w, "image too large", http.StatusRequestEntityTooLarge)
 				return
 			}
+			if chatImgType(raw) == "" { // il tipo si controlla prima di decodificare
+				http.Error(w, "bad image", http.StatusBadRequest)
+				return
+			}
+			jb, okn := chatImgNormalize(raw)
+			if !okn {
+				http.Error(w, "image too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			raw = jb
 			name, ok := chatImgStore(raw)
 			if !ok {
 				http.Error(w, "bad image", http.StatusBadRequest)
