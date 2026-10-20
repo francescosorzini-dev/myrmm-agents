@@ -39,15 +39,58 @@ func tunnelStateDir() string {
 
 func tunnelServersFile() string { return filepath.Join(tunnelStateDir(), "tunnel-servers.txt") }
 
+// Server ammessi: quelli scritti dal servizio dell'agent di questo PC (automatico) e quelli registrati a mano dall'utente.
+func tunnelSystemServersFile() string { return filepath.Join(dataDir(), "tunnel-servers.txt") }
+
 func tunnelServers() []string {
-	b, _ := os.ReadFile(tunnelServersFile())
 	var out []string
-	for _, l := range strings.Split(string(b), "\n") {
-		if l = normServer(l); l != "" {
-			out = append(out, l)
+	for _, f := range []string{tunnelSystemServersFile(), tunnelServersFile()} {
+		b, _ := os.ReadFile(f)
+		for _, l := range strings.Split(string(b), "\n") {
+			if l = normServer(l); l != "" {
+				out = append(out, l)
+			}
 		}
 	}
 	return out
+}
+
+// sameServer: stesso server anche se uno dei due indirizzi ha «index.php» o la barra finale in più.
+func sameServer(a, b string) bool {
+	n := func(s string) string {
+		u, err := url.Parse(normServer(s))
+		if err != nil {
+			return normServer(s)
+		}
+		p := strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "index.php")
+		return strings.ToLower(u.Scheme + "://" + u.Host + strings.TrimRight(p, "/"))
+	}
+	return n(a) == n(b)
+}
+
+// tunnelAutoRegister: il servizio dell'agent rende questo PC pronto al «un clic»: ricorda il proprio server come unico ammesso
+// e registra il collegamento myrmm-tunnel:// per tutti gli utenti, senza nessun comando da lanciare.
+func tunnelAutoRegister(serverURL string, log interface{ Warningf(string, ...any) error }) {
+	if serverURL == "" {
+		return
+	}
+	cur := ""
+	if b, err := os.ReadFile(tunnelSystemServersFile()); err == nil {
+		cur = strings.TrimSpace(string(b))
+	}
+	if cur != normServer(serverURL) {
+		if err := os.WriteFile(tunnelSystemServersFile(), []byte(normServer(serverURL)+"\n"), 0o644); err != nil {
+			_ = log.Warningf("tunnel: %v", err)
+			return
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if err := registerTunnelSchemeSystem(exe); err != nil {
+		_ = log.Warningf("tunnel: registrazione del collegamento: %v", err)
+	}
 }
 
 func tunnelServerAdd(u string) error {
@@ -84,7 +127,7 @@ func parseTunnelURI(raw string, allowed []string) ([]string, error) {
 	srv := normServer(g("u"))
 	okSrv := false
 	for _, a := range allowed {
-		if a == srv {
+		if sameServer(a, srv) {
 			okSrv = true
 		}
 	}
@@ -155,11 +198,18 @@ func tunnelURIMain(args []string) int {
 	a, err := parseTunnelURI(args[0], tunnelServers())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "myrmm:", err)
+		showTunnelError(err.Error())
 		pauseOnConsole()
 		return 2
 	}
+	// RDP, VNC e proxy non hanno bisogno di una finestra di console: il tunnel prosegue in background e il client si apre da solo.
+	// SSH invece la usa come terminale.
+	if !hasArg(a, "-ssh") && runTunnelDetached(args[0]) {
+		return 0
+	}
 	rc := tunnelClient(a)
 	if rc != 0 {
+		showTunnelError(fmt.Sprintf("il tunnel si è interrotto (codice %d)", rc))
 		pauseOnConsole()
 	}
 	return rc
@@ -222,4 +272,13 @@ func installTunnelHelper() (string, error) {
 	}
 	_ = os.Remove(dst)
 	return dst, os.Rename(tmp, dst)
+}
+
+func hasArg(a []string, v string) bool {
+	for _, x := range a {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }

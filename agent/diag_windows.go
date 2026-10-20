@@ -26,9 +26,9 @@ H 'Attivita pianificata myrmm-tray (icona e chat)'
 $t=Get-ScheduledTask -TaskName 'myrmm-tray'
 if($t){ $t | Format-List TaskName,State | Out-String; $i=$t|Get-ScheduledTaskInfo; "ultima esecuzione: $($i.LastRunTime)  esito: 0x{0:X}  prossima: $($i.NextRunTime)" -f $i.LastTaskResult
   "azione: $($t.Actions.Execute) $($t.Actions.Arguments)"; "principal: $($t.Principal.GroupId)$($t.Principal.UserId) livello $($t.Principal.RunLevel)"; "trigger: $(($t.Triggers|%{$_.CimClass.CimClassName}) -join ', ')" } else { 'ATTIVITA NON TROVATA: l''agent non l''ha registrata (tray_mode=off, errore alla registrazione, o agent non aggiornato)' }
-H 'Processi icona (tray.ps1)'
-$p=Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*tray.ps1*' }
-if($p){ $p | ForEach-Object { $o=Invoke-CimMethod -InputObject $_ -MethodName GetOwner; "pid $($_.ProcessId)  sessione $($_.SessionId)  utente $($o.Domain)\$($o.User)" } } else { 'nessun processo tray.ps1 in esecuzione (nessun utente collegato dopo la registrazione, o l''icona e'' terminata)' }
+H 'Processi icona (myrmm-tray.exe)'
+$p=Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'myrmm-tray.exe' -or $_.CommandLine -like '*tray.ps1*' }
+if($p){ $p | ForEach-Object { $o=Invoke-CimMethod -InputObject $_ -MethodName GetOwner; "pid $($_.ProcessId)  sessione $($_.SessionId)  utente $($o.Domain)\$($o.User)" } } else { 'nessun processo myrmm-tray in esecuzione (nessun utente collegato dopo la registrazione, o l''icona e'' terminata)' }
 H 'Sessioni (quser)'
 quser 2>&1 | Out-String
 H 'Windows Forms disponibile'

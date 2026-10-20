@@ -221,6 +221,9 @@ var (
 	hRich      windows.HWND
 	hInput     windows.HWND
 	hSend      windows.HWND
+	hShot      windows.HWND
+	hAttach    windows.HWND
+	origRich   uintptr
 	hTicket    windows.HWND
 	hSubject   windows.HWND
 	hFont      uintptr
@@ -320,6 +323,9 @@ func buildControls(inst uintptr) {
 	hInput = mk("EDIT", "", wsBorder|esMultiline|esAutoVScroll|wsVScroll|wsTabstop, idInput)
 	pSendMessage.Call(uintptr(hInput), emSetLimit, 2000, 0)
 	hSend = mk("BUTTON", "Invia", bsDefPush|wsTabstop, idSend)
+	hShot = mk("BUTTON", "Screenshot", bsPush|wsTabstop, idShot)
+	hAttach = mk("BUTTON", "Allega immagine...", bsPush|wsTabstop, idAttach)
+	origRich, _, _ = pSetWindowLongPtr.Call(uintptr(hRich), uintptr(^uint(3)), syscall.NewCallback(richProc))
 	editProcCB = syscall.NewCallback(editProc)
 	origEdit, _, _ = pSetWindowLongPtr.Call(uintptr(hInput), uintptr(^uint(3)), editProcCB) // GWLP_WNDPROC = -4
 }
@@ -331,6 +337,10 @@ func editProc(h, m, w, l uintptr) uintptr {
 			pPostMessage.Call(uintptr(hMain), wmCommand, idSend, 0)
 			return 0
 		}
+	}
+	if m == wmPaste && clipHasImage() { // incolla un'immagine: anteprima e invio
+		pPostMessage.Call(uintptr(hMain), wmCommand, idPaste, 0)
+		return 0
 	}
 	if m == wmChar && w == 0x0D {
 		if s, _, _ := pGetKeyState.Call(0x10); int16(s) >= 0 {
@@ -365,7 +375,19 @@ func wndProc(h, m, w, l uintptr) uintptr {
 			doLayout()
 		case idMenuChat:
 			showChat()
+		case idShot, idMenuShot:
+			startShot()
+		case idAttach:
+			doAttach()
+		case idPaste:
+			doPaste()
 		}
+		return 0
+	case wmShotDone:
+		onShotDone()
+		return 0
+	case wmViewImg:
+		onViewImg()
 		return 0
 	case wmTimer:
 		if !iconOK { // Explorer può non essere pronto all'accesso: si riprova finché l'icona non è stata aggiunta
@@ -402,11 +424,14 @@ func doLayout() {
 	const pad, btnW, chkH, subjH = 8, 84, 22, 24
 	ticket := checked(hTicket)
 	inputH := 70
+	const barH = 26
 	bottom := H - pad
-	// in basso: [input | invia]
+	// in basso: [input | invia], sopra la barra con Screenshot e Allega immagine
 	pMoveWindow.Call(uintptr(hInput), pad, uintptr(bottom-inputH), uintptr(W-3*pad-btnW), uintptr(inputH), 1)
 	pMoveWindow.Call(uintptr(hSend), uintptr(W-pad-btnW), uintptr(bottom-inputH), btnW, uintptr(inputH), 1)
-	y := bottom - inputH - pad
+	pMoveWindow.Call(uintptr(hShot), pad, uintptr(bottom-inputH-barH-4), 110, barH, 1)
+	pMoveWindow.Call(uintptr(hAttach), pad+118, uintptr(bottom-inputH-barH-4), 150, barH, 1)
+	y := bottom - inputH - barH - 4 - pad
 	if ticket {
 		pShowWindow.Call(uintptr(hSubject), swShow)
 		y -= subjH
@@ -451,12 +476,15 @@ func showChat() {
 
 func hideChat() { visible = false; pShowWindow.Call(uintptr(hMain), swHide) }
 
-func doSend() {
+func doSend() { doSendImg("", "") }
+
+// doSendImg invia il testo scritto (e, se c'è, l'immagine in base64) con la richiesta di assistenza eventualmente spuntata.
+func doSendImg(img, kind string) {
 	t := strings.TrimSpace(getText(hInput))
-	if t == "" || cl == nil {
+	if (t == "" && img == "") || cl == nil {
 		return
 	}
-	req := sendReq{Text: t}
+	req := sendReq{Text: t, Img: img, Kind: kind}
 	if checked(hTicket) {
 		ti := strings.TrimSpace(getText(hSubject))
 		if ti == "" {
@@ -470,6 +498,7 @@ func doSend() {
 		err := c.send(req)
 		pEnableWindow.Call(uintptr(hSend), 1)
 		if err != nil {
+			logf("invio: %v", err)
 			messageBox("Impossibile inviare il messaggio: riprova tra poco.")
 			return
 		}
@@ -545,6 +574,12 @@ func refresh() {
 		return
 	}
 	setOnline(st.Online)
+	for _, e := range st.Log {
+		if e.Dir == "op" && e.Kind == "shotreq" && e.SrvID > st.Read && e.SrvID > shotAsked {
+			askShot(e.SrvID)
+			break
+		}
+	}
 	if visible {
 		mu.Lock()
 		seen = maxOpID(st.Log)
@@ -567,12 +602,23 @@ func refresh() {
 
 func renderChat(log []logEntry) {
 	sig := signature(log)
-	if sig == lastSig {
+	mu.Lock()
+	same := sig == lastSig
+	lastSig = sig
+	mu.Unlock()
+	if same {
 		return
 	}
-	lastSig = sig
 	setText(hRich, "")
+	imgSpans = imgSpans[:0]
 	for _, s := range renderSegments(log) {
+		if s.Img != "" {
+			if t := thumbFor(s.Img); t != nil {
+				insertThumb(s.Img, t)
+				continue
+			}
+			s = segment{Text: "(immagine in caricamento...)", Color: colMuted}
+		}
 		appendStyled(s)
 	}
 	pSendMessage.Call(uintptr(hRich), wmVScroll, sbBottom, 0)
@@ -669,6 +715,7 @@ func popupMenu() {
 	}
 	pAppendMenu.Call(menu, 0x800, 0, 0) // separatore
 	pAppendMenu.Call(menu, 0, idMenuChat, uintptr(unsafe.Pointer(u16("Contatta l'assistenza..."))))
+	pAppendMenu.Call(menu, 0, idMenuShot, uintptr(unsafe.Pointer(u16("Invia uno screenshot..."))))
 	var pt point
 	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 	pSetForegroundWnd.Call(uintptr(hMain))

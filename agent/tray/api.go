@@ -133,6 +133,7 @@ type segment struct {
 	Text  string
 	Color uint32 // 0xBBGGRR (COLORREF)
 	Bold  bool
+	Img   string // se non vuoto: al posto del testo va l'anteprima di questa immagine
 }
 
 const (
@@ -179,7 +180,7 @@ func renderSegments(log []logEntry) []segment {
 			case e.Failed:
 				out = append(out, segment{Text: "(immagine non inviata)\n", Color: colMuted})
 			case e.Ready || mine:
-				out = append(out, segment{Text: "[immagine]\n", Color: colOp})
+				out = append(out, segment{Img: e.Img, Text: "[immagine]"}, segment{Text: "\n"})
 			default:
 				out = append(out, segment{Text: "(immagine in arrivo...)\n", Color: colMuted})
 			}

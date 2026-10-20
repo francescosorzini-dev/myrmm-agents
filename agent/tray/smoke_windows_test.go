@@ -39,7 +39,14 @@ func TestTraySmoke(t *testing.T) {
 			atomic.AddInt32(&guard, 1)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"host": "PC-PROVA", "version": "0", "online": true,
-			"log": []map[string]any{{"dir": "out", "text": "ciao dall'assistenza", "srv_id": 1, "ts": "2026-10-20T10:00:00Z", "author": "Assistenza"}}})
+			"log": []map[string]any{{"dir": "op", "img": "ci0123456789abcdef0123456789abcdef", "ready": true, "srv_id": 2, "ts": "2026-10-20T10:00:00Z", "author": "Assistenza"}, {"dir": "op", "text": "ciao dall'assistenza", "srv_id": 1, "ts": "2026-10-20T10:00:00Z", "author": "Assistenza"}}})
+	})
+	var imgHits int32
+	mux.HandleFunc("/img", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&imgHits, 1)
+		b, _ := encodePNG(testImg())
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(b)
 	})
 	go http.Serve(ln, mux)
 	port := ln.Addr().(*net.TCPAddr).Port
@@ -77,6 +84,26 @@ func TestTraySmoke(t *testing.T) {
 	h, _, _ := findWnd.Call(uintptr(unsafe.Pointer(u16("MyrmmTray"))), 0)
 	if h == 0 {
 		t.Error("finestra MyrmmTray non trovata")
+	}
+
+	// apre la chat come farebbe il doppio clic sull'icona: l'anteprima dell'immagine deve essere scaricata e inserita
+	pPostMessage.Call(h, wmCommand, idMenuChat, 0)
+	until := time.Now().Add(15 * time.Second)
+	for time.Now().Before(until) && atomic.LoadInt32(&imgHits) == 0 {
+		time.Sleep(200 * time.Millisecond)
+	}
+	if atomic.LoadInt32(&imgHits) == 0 {
+		t.Error("la tray non ha scaricato l'immagine della conversazione")
+	}
+	ok := false
+	for time.Now().Before(until.Add(5*time.Second)) && !ok {
+		lg, _ := os.ReadFile(filepath.Join(dir, "myrmm-tray.log"))
+		ok = bytes.Contains(lg, []byte("miniatura inserita"))
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !ok {
+		lg, _ := os.ReadFile(filepath.Join(dir, "myrmm-tray.log"))
+		t.Errorf("miniatura non inserita nella chat. Log:\n%s", lg)
 	}
 
 	second := exec.Command(exe)
