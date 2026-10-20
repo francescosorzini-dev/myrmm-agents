@@ -63,10 +63,12 @@ type paintStruct struct {
 	Res     [32]byte
 }
 
+// EDITSTREAM è dichiarata con impacchettamento a 4 byte (pshpack4.h): su 64 bit il puntatore alla funzione sta all'offset 12, non 16.
 type editStream struct {
 	Cookie uintptr
 	Err    uint32
-	Cb     uintptr
+	CbLo   uint32
+	CbHi   uint32
 }
 
 type openFileName struct {
@@ -562,7 +564,7 @@ func insertThumb(name string, t *thumbT) {
 	var a, b int32
 	pSendMessage.Call(uintptr(hRich), emGetSel, uintptr(unsafe.Pointer(&a)), uintptr(unsafe.Pointer(&b)))
 	rtfData, rtfPos = []byte(t.rtf), 0
-	es := editStream{Cb: rtfCB}
+	es := editStream{CbLo: uint32(rtfCB), CbHi: uint32(uint64(rtfCB) >> 32)}
 	pSendMessage.Call(uintptr(hRich), emStreamIn, sfRTF|sffSelection, uintptr(unsafe.Pointer(&es)))
 	var c, d int32
 	pSendMessage.Call(uintptr(hRich), emGetSel, uintptr(unsafe.Pointer(&c)), uintptr(unsafe.Pointer(&d)))
