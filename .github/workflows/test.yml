@@ -24,7 +24,7 @@ jobs:
       - name: Prova dello scanner
         run: python3 ci/scan_secrets_test.py
       - name: Scansione della storia
-        run: python3 ci/scan_secrets.py . --allow-path 'ci/*_test.py'   # i file di prova contengono valori finti voluti
+        run: python3 ci/scan_secrets.py . --allow-path 'ci/*_test.py' 'ci/deploy_win_mock.ps1' 'ci/snmpsim/gen.py' 'README.md'   # prove con indirizzi finti voluti; esempi di IP privati nel manuale
 
   compila:
     name: Compilazione per tutte le piattaforme

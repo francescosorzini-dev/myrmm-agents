@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -45,11 +46,15 @@ func TestTraySmoke(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "tray.json"), []byte(fmt.Sprintf(`{"port":%d}`, port)), 0o644)
 
 	cmd := exec.Command(exe)
-	cmd.Env = append(os.Environ(), "MYRMM_DIR="+dir)
+	cmd.Env = append(os.Environ(), "MYRMM_DIR="+dir, "TMP="+dir, "TEMP="+dir)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	defer cmd.Process.Kill()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
 
 	findWnd := windows.NewLazySystemDLL("user32.dll").NewProc("FindWindowW")
 	deadline := time.Now().Add(20 * time.Second)
@@ -57,7 +62,14 @@ func TestTraySmoke(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	if atomic.LoadInt32(&hits) == 0 {
-		t.Fatal("la tray non ha mai chiamato /state")
+		lg, _ := os.ReadFile(filepath.Join(dir, "myrmm-tray.log"))
+		st := "in esecuzione"
+		select {
+		case e := <-exited:
+			st = fmt.Sprintf("USCITA: %v", e)
+		default:
+		}
+		t.Fatalf("la tray non ha mai chiamato /state (processo: %s)\noutput: %s\nlog:\n%s", st, out.String(), lg)
 	}
 	if atomic.LoadInt32(&guard) == 0 {
 		t.Error("manca l'intestazione X-Myrmm-Tray")
