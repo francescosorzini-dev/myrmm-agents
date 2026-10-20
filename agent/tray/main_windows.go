@@ -23,48 +23,49 @@ var (
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	gdi32    = windows.NewLazySystemDLL("gdi32.dll")
 
-	pRegisterClassEx  = user32.NewProc("RegisterClassExW")
-	pCreateWindowEx   = user32.NewProc("CreateWindowExW")
-	pDefWindowProc    = user32.NewProc("DefWindowProcW")
-	pGetMessage       = user32.NewProc("GetMessageW")
-	pTranslateMessage = user32.NewProc("TranslateMessage")
-	pDispatchMessage  = user32.NewProc("DispatchMessageW")
-	pPostMessage      = user32.NewProc("PostMessageW")
-	pSendMessage      = user32.NewProc("SendMessageW")
-	pPostQuitMessage  = user32.NewProc("PostQuitMessage")
-	pShowWindow       = user32.NewProc("ShowWindow")
-	pIsWindowVisible  = user32.NewProc("IsWindowVisible")
-	pSetForegroundWnd = user32.NewProc("SetForegroundWindow")
-	pSetFocus         = user32.NewProc("SetFocus")
-	pMoveWindow       = user32.NewProc("MoveWindow")
-	pGetClientRect    = user32.NewProc("GetClientRect")
-	pSetTimer         = user32.NewProc("SetTimer")
-	pLoadCursor       = user32.NewProc("LoadCursorW")
-	pCreatePopupMenu  = user32.NewProc("CreatePopupMenu")
-	pAppendMenu       = user32.NewProc("AppendMenuW")
-	pTrackPopupMenu   = user32.NewProc("TrackPopupMenu")
-	pDestroyMenu      = user32.NewProc("DestroyMenu")
-	pGetCursorPos     = user32.NewProc("GetCursorPos")
-	pGetWindowTextLen = user32.NewProc("GetWindowTextLengthW")
-	pGetWindowText    = user32.NewProc("GetWindowTextW")
-	pSetWindowText    = user32.NewProc("SetWindowTextW")
-	pEnableWindow     = user32.NewProc("EnableWindow")
-	pGetKeyState      = user32.NewProc("GetKeyState")
-	pSetWindowLongPtr = user32.NewProc("SetWindowLongPtrW")
-	pCallWindowProc   = user32.NewProc("CallWindowProcW")
-	pCreateIconIndir  = user32.NewProc("CreateIconIndirect")
-	pMessageBox       = user32.NewProc("MessageBoxW")
-	pShellNotifyIcon  = shell32.NewProc("Shell_NotifyIconW")
-	pGetModuleHandle  = kernel32.NewProc("GetModuleHandleW")
-	pCreateMutex      = kernel32.NewProc("CreateMutexW")
-	pCreateFont       = gdi32.NewProc("CreateFontW")
-	pCreateBitmap     = gdi32.NewProc("CreateBitmap")
-	pCreateDIBSection = gdi32.NewProc("CreateDIBSection")
-	pGetDC            = user32.NewProc("GetDC")
-	pReleaseDC        = user32.NewProc("ReleaseDC")
-	pGetSysColorBrush = user32.NewProc("GetSysColorBrush")
-	pLoadLibrary      = kernel32.NewProc("LoadLibraryW")
-	pShellExecute     = shell32.NewProc("ShellExecuteW")
+	pRegisterClassEx       = user32.NewProc("RegisterClassExW")
+	pCreateWindowEx        = user32.NewProc("CreateWindowExW")
+	pDefWindowProc         = user32.NewProc("DefWindowProcW")
+	pGetMessage            = user32.NewProc("GetMessageW")
+	pTranslateMessage      = user32.NewProc("TranslateMessage")
+	pDispatchMessage       = user32.NewProc("DispatchMessageW")
+	pPostMessage           = user32.NewProc("PostMessageW")
+	pSendMessage           = user32.NewProc("SendMessageW")
+	pPostQuitMessage       = user32.NewProc("PostQuitMessage")
+	pShowWindow            = user32.NewProc("ShowWindow")
+	pIsWindowVisible       = user32.NewProc("IsWindowVisible")
+	pSetForegroundWnd      = user32.NewProc("SetForegroundWindow")
+	pSetFocus              = user32.NewProc("SetFocus")
+	pMoveWindow            = user32.NewProc("MoveWindow")
+	pGetClientRect         = user32.NewProc("GetClientRect")
+	pSetTimer              = user32.NewProc("SetTimer")
+	pLoadCursor            = user32.NewProc("LoadCursorW")
+	pCreatePopupMenu       = user32.NewProc("CreatePopupMenu")
+	pAppendMenu            = user32.NewProc("AppendMenuW")
+	pTrackPopupMenu        = user32.NewProc("TrackPopupMenu")
+	pDestroyMenu           = user32.NewProc("DestroyMenu")
+	pGetCursorPos          = user32.NewProc("GetCursorPos")
+	pGetWindowTextLen      = user32.NewProc("GetWindowTextLengthW")
+	pGetWindowText         = user32.NewProc("GetWindowTextW")
+	pSetWindowText         = user32.NewProc("SetWindowTextW")
+	pEnableWindow          = user32.NewProc("EnableWindow")
+	pGetKeyState           = user32.NewProc("GetKeyState")
+	pSetWindowLongPtr      = user32.NewProc("SetWindowLongPtrW")
+	pCallWindowProc        = user32.NewProc("CallWindowProcW")
+	pCreateIconIndir       = user32.NewProc("CreateIconIndirect")
+	pMessageBox            = user32.NewProc("MessageBoxW")
+	pShellNotifyIcon       = shell32.NewProc("Shell_NotifyIconW")
+	pGetModuleHandle       = kernel32.NewProc("GetModuleHandleW")
+	pCreateMutex           = kernel32.NewProc("CreateMutexW")
+	pCreateFont            = gdi32.NewProc("CreateFontW")
+	pCreateBitmap          = gdi32.NewProc("CreateBitmap")
+	pCreateDIBSection      = gdi32.NewProc("CreateDIBSection")
+	pGetDC                 = user32.NewProc("GetDC")
+	pReleaseDC             = user32.NewProc("ReleaseDC")
+	pGetSysColorBrush      = user32.NewProc("GetSysColorBrush")
+	pLoadLibrary           = kernel32.NewProc("LoadLibraryW")
+	pRegisterWindowMessage = user32.NewProc("RegisterWindowMessageW")
+	pShellExecute          = shell32.NewProc("ShellExecuteW")
 )
 
 const (
@@ -227,22 +228,27 @@ var (
 	origEdit   uintptr
 	editProcCB uintptr
 
-	mu       sync.Mutex
-	cur      *state // ultimo stato ricevuto dall'agent
-	curErr   bool
-	lastSig  string
-	seen     int // ultimo messaggio dell'assistenza visto con la finestra aperta
-	notified int
-	online   = -1
-	visible  bool
+	mu           sync.Mutex
+	cur          *state // ultimo stato ricevuto dall'agent
+	curErr       bool
+	lastSig      string
+	seen         int // ultimo messaggio dell'assistenza visto con la finestra aperta
+	notified     int
+	online       = -1
+	iconOK       bool
+	loggedNoBase bool
+	wmTaskbar    uintptr
+	visible      bool
 )
 
 func main() {
 	// stesso nome del mutex della tray PowerShell: le due non possono girare insieme
-	h, _, _ := pCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(u16(`Local\myrmm-tray`))))
-	if h == 0 || windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
+	h, _, merr := pCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(u16(`Local\myrmm-tray`))))
+	if h == 0 || merr == windows.ERROR_ALREADY_EXISTS {
 		return
 	}
+	openLog()
+	logf("avvio, exe=%s", os.Args[0])
 	dir := os.Getenv("MYRMM_DIR")
 	if dir == "" {
 		if exe, err := os.Executable(); err == nil {
@@ -261,6 +267,7 @@ func main() {
 	pRegisterClassEx.Call(uintptr(unsafe.Pointer(&cls)))
 	hw, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16("MyrmmTray"))), uintptr(unsafe.Pointer(u16("Assistenza"))), wsOverlapped, 0x80000000, 0x80000000, 460, 580, 0, 0, inst, 0)
 	hMain = windows.HWND(hw)
+	logf("finestra creata: %v, dir=%s", hw != 0, dir)
 	buildControls(inst)
 
 	setBase := func() bool {
@@ -275,8 +282,9 @@ func main() {
 		return true
 	}
 	_ = setBase
+	wmTaskbar, _, _ = pRegisterWindowMessage.Call(uintptr(unsafe.Pointer(u16("TaskbarCreated"))))
 	addIcon()
-	pSetTimer.Call(uintptr(hMain), timerPoll, 2000, 0)
+	pSetTimer.Call(uintptr(hMain), timerPoll, 3000, 0)
 	go poller(dir)
 
 	var m msg
@@ -354,6 +362,9 @@ func wndProc(h, m, w, l uintptr) uintptr {
 		}
 		return 0
 	case wmTimer:
+		if !iconOK { // Explorer può non essere pronto all'accesso: si riprova finché l'icona non è stata aggiunta
+			addIcon()
+		}
 		return 0
 	case wmRefresh:
 		refresh()
@@ -367,6 +378,11 @@ func wndProc(h, m, w, l uintptr) uintptr {
 		case 0x405: // NIN_BALLOONUSERCLICK
 			showChat()
 		}
+		return 0
+	}
+	if wmTaskbar != 0 && m == wmTaskbar { // Explorer riavviato: l'icona va ricreata
+		iconOK, online = false, -1
+		addIcon()
 		return 0
 	}
 	r, _, _ := pDefWindowProc.Call(h, m, w, l)
@@ -473,6 +489,10 @@ func poller(dir string) {
 		if cl == nil {
 			if b, err := baseFromDir(dir); err == nil {
 				cl = newClient(b)
+				logf("API locale: %s", b)
+			} else if !loggedNoBase {
+				loggedNoBase = true
+				logf("tray.json non leggibile in %s: %v", dir, err)
 			}
 		}
 		pollOnce()
@@ -496,6 +516,9 @@ func pollOnce() {
 	st, err := c.state(visible, sn)
 	mu.Lock()
 	if err != nil {
+		if !curErr {
+			logf("/state: %v", err)
+		}
 		curErr = true
 		mu.Unlock()
 		setOnline(false)
@@ -577,7 +600,9 @@ func addIcon() {
 	nd.CallbackMessage = wmTray
 	nd.Icon = hIconOff
 	copy(nd.Tip[:], windows.StringToUTF16("myrmm"))
-	pShellNotifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(&nd)))
+	r, _, e := pShellNotifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(&nd)))
+	iconOK = r != 0
+	logf("Shell_NotifyIcon(ADD) -> %d (%v)", r, e)
 }
 
 func removeIcon() {
@@ -698,3 +723,20 @@ func makeIcon(rgb uint32) windows.Handle {
 }
 
 var _ = fmt.Sprint
+
+// log di diagnosi: %TEMP%\myrmm-tray.log (si azzera oltre 200 KB)
+var logFile *os.File
+
+func openLog() {
+	p := filepath.Join(os.TempDir(), "myrmm-tray.log")
+	if st, err := os.Stat(p); err == nil && st.Size() > 200<<10 {
+		os.Remove(p)
+	}
+	logFile, _ = os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+}
+
+func logf(f string, a ...any) {
+	if logFile != nil {
+		fmt.Fprintf(logFile, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(f, a...))
+	}
+}

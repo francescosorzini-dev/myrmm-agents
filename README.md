@@ -1,4 +1,4 @@
-# myrmm v1.64.0 — manuale
+# myrmm v1.64.1 — manuale
 
 RMM (Remote Monitoring & Management) leggero per gestire flotte di PC e server di più clienti, pensato per
 girare su un **hosting condiviso Apache/PHP con SQLite**: nessun processo sempre attivo, nessun cron,
@@ -1091,6 +1091,7 @@ dist/                        binari di tutte le piattaforme (prodotti da release
 
 ## 17. Cronologia
 
+- **1.64.1** — tray in Go: una sola copia (il mutex non veniva riconosciuto), icona riaggiunta se Explorer non è pronto all'accesso o viene riavviato, log di diagnosi in `%TEMP%\myrmm-tray.log`.
 - **1.64.0** — **Tray nativa in Go** (`myrmm-tray.exe`, scelta per device dalla console, PowerShell resta il predefinito) e **tunnel «Avvia sul mio PC»** (protocollo `myrmm-tunnel://`) (§8.63).
 - **1.63.1** — la tray non cattura più lo schermo da PowerShell (Defender la segnalava come HackTool e la metteva in quarantena): screenshot con lo strumento di Windows, riduzione e compressione nell'agent.
 - **1.63.0** — **Screenshot e immagini nella chat**: lo screenshot parte sempre da un'anteprima confermata dall'utente (o su sua scelta: allega, incolla); la console allega, incolla e trascina immagini, chiede uno screenshot e le condivide su device e ticket (nuovo riquadro Allegati nei ticket); verifica del tipo sui byte, conservazione 30 giorni (§8.62).
