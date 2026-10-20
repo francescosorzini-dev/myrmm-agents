@@ -24,14 +24,14 @@ function Get-Base {
     return $null
 }
 
-function Call-Agent([string]$path, $body) {
+function Call-Agent([string]$path, $body, [int]$timeout = 5) {
     if (-not $script:base) { $script:base = Get-Base }
     if (-not $script:base) { return $null }
     $h = @{ 'X-Myrmm-Tray' = '1' }
     try {
         if ($null -ne $body) {
             $json = $body | ConvertTo-Json -Compress
-            return Invoke-RestMethod -Uri ($script:base + $path) -Method Post -Headers $h -TimeoutSec 5 -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json)) -UseBasicParsing
+            return Invoke-RestMethod -Uri ($script:base + $path) -Method Post -Headers $h -TimeoutSec $timeout -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json)) -UseBasicParsing
         }
         return Invoke-RestMethod -Uri ($script:base + $path) -Headers $h -TimeoutSec 5 -UseBasicParsing
     } catch { $script:base = $null; return $null }
@@ -69,7 +69,7 @@ $form.ShowInTaskbar = $true
 $tbl = New-Object System.Windows.Forms.TableLayoutPanel
 $tbl.Dock = 'Fill'; $tbl.ColumnCount = 1; $tbl.RowCount = 2
 [void]$tbl.RowStyles.Add((New-Object System.Windows.Forms.RowStyle('Percent', 100)))
-[void]$tbl.RowStyles.Add((New-Object System.Windows.Forms.RowStyle('Absolute', 112)))
+[void]$tbl.RowStyles.Add((New-Object System.Windows.Forms.RowStyle('Absolute', 144)))
 $form.Controls.Add($tbl)
 
 $rtb = New-Object System.Windows.Forms.RichTextBox
@@ -85,6 +85,15 @@ $btn = New-Object System.Windows.Forms.Button
 $btn.Text = 'Invia'; $btn.Dock = 'Right'; $btn.Width = 84
 $bottom.Controls.Add($btn)
 
+$tools = New-Object System.Windows.Forms.FlowLayoutPanel
+$tools.Dock = 'Top'; $tools.Height = 30; $tools.Padding = New-Object System.Windows.Forms.Padding(0, 0, 0, 2)
+$btnShot = New-Object System.Windows.Forms.Button
+$btnShot.Text = 'Screenshot'; $btnShot.AutoSize = $true
+$btnImg = New-Object System.Windows.Forms.Button
+$btnImg.Text = 'Allega immagine...'; $btnImg.AutoSize = $true
+$tools.Controls.Add($btnShot); $tools.Controls.Add($btnImg)
+$bottom.Controls.Add($tools)
+
 $subj = New-Object System.Windows.Forms.TextBox
 $subj.Dock = 'Top'; $subj.MaxLength = 140; $subj.Visible = $false
 $bottom.Controls.Add($subj)
@@ -93,7 +102,7 @@ $chk.Text = 'Apri una richiesta di assistenza (ticket)'; $chk.Dock = 'Top'; $chk
 $bottom.Controls.Add($chk)
 $chk.Add_CheckedChanged({
     $subj.Visible = $chk.Checked
-    $tbl.RowStyles[1].Height = $(if ($chk.Checked) { 140 } else { 112 })
+    $tbl.RowStyles[1].Height = $(if ($chk.Checked) { 172 } else { 144 })
     if ($chk.Checked) { $subj.Focus() | Out-Null }
 })
 
@@ -102,12 +111,198 @@ $inp.Multiline = $true; $inp.Dock = 'Fill'; $inp.AcceptsReturn = $false; $inp.Ma
 $bottom.Controls.Add($inp)
 $inp.BringToFront()
 
+# ---- immagini: screenshot, allegati, miniature ----
+$script:thumbs = @{}
+$script:hits = @()
+
+function Get-ImgBytes([string]$n) {
+    if (-not $script:base) { $script:base = Get-Base }
+    if (-not $script:base) { return $null }
+    try {
+        $r = Invoke-WebRequest -Uri ($script:base + '/img?n=' + [uri]::EscapeDataString($n)) -Headers @{ 'X-Myrmm-Tray' = '1' } -TimeoutSec 10 -UseBasicParsing
+        return ,[byte[]]$r.Content
+    } catch { return $null }
+}
+
+function Get-ThumbRtf([string]$n) {
+    if ($script:thumbs.ContainsKey($n)) { return $script:thumbs[$n] }
+    $b = Get-ImgBytes $n
+    if (-not $b) { return $null }
+    try {
+        $ms = New-Object System.IO.MemoryStream(, $b)
+        $img = [System.Drawing.Image]::FromStream($ms)
+        $w = [Math]::Min(280, $img.Width)
+        $h = [int][Math]::Max(1, $img.Height * $w / $img.Width)
+        $bmp = New-Object System.Drawing.Bitmap($w, $h)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.InterpolationMode = 'HighQualityBicubic'
+        $g.DrawImage($img, 0, 0, $w, $h)
+        $g.Dispose()
+        $o = New-Object System.IO.MemoryStream
+        $bmp.Save($o, [System.Drawing.Imaging.ImageFormat]::Png)
+        $hex = [BitConverter]::ToString($o.ToArray()).Replace('-', '').ToLower()
+        $rtf = '{\rtf1\ansi{\pict\pngblip\picw' + $w + '\pich' + $h + '\picwgoal' + ($w * 15) + '\pichgoal' + ($h * 15) + ' ' + $hex + '}}'
+        $bmp.Dispose(); $img.Dispose()
+        $script:thumbs[$n] = $rtf
+        return $rtf
+    } catch { return $null }
+}
+
+function Show-Viewer([string]$n) {
+    $b = Get-ImgBytes $n
+    if (-not $b) { return }
+    try {
+        $ms = New-Object System.IO.MemoryStream(, $b)
+        $img = [System.Drawing.Image]::FromStream($ms)
+        $v = New-Object System.Windows.Forms.Form
+        $v.Text = 'Immagine'; $v.StartPosition = 'CenterScreen'; $v.Size = New-Object System.Drawing.Size(900, 650)
+        $pic = New-Object System.Windows.Forms.PictureBox
+        $pic.Dock = 'Fill'; $pic.SizeMode = 'Zoom'; $pic.Image = $img; $pic.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
+        $v.Controls.Add($pic)
+        $v.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq 'Escape') { $s.Close() } })
+        $v.KeyPreview = $true
+        [void]$v.ShowDialog()
+        $v.Dispose(); $img.Dispose()
+    } catch { }
+}
+
+function Capture-Screen {
+    $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $bmp = New-Object System.Drawing.Bitmap($b.Width, $b.Height)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
+    $g.Dispose()
+    return $bmp
+}
+
+# anteprima obbligatoria: nulla parte verso l'assistenza senza che l'utente abbia visto l'immagine e premuto Invia
+function Confirm-Image($img, [string]$title, [bool]$retry) {
+    $d = New-Object System.Windows.Forms.Form
+    $d.Text = $title; $d.StartPosition = 'CenterScreen'; $d.Size = New-Object System.Drawing.Size(780, 640)
+    $d.MinimumSize = New-Object System.Drawing.Size(520, 420); $d.TopMost = $true; $d.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+    $pic = New-Object System.Windows.Forms.PictureBox
+    $pic.Dock = 'Fill'; $pic.SizeMode = 'Zoom'; $pic.Image = $img; $pic.BackColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
+    $d.Controls.Add($pic)
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Dock = 'Top'; $lbl.Height = 48; $lbl.Padding = New-Object System.Windows.Forms.Padding(8, 6, 8, 0)
+    $lbl.Text = "Controlla l'anteprima. L'immagine arriva all'assistenza solo se premi Invia: verifica che non mostri password o dati riservati."
+    $d.Controls.Add($lbl)
+    $pnl = New-Object System.Windows.Forms.Panel
+    $pnl.Dock = 'Bottom'; $pnl.Height = 88; $pnl.Padding = New-Object System.Windows.Forms.Padding(8)
+    $cap = New-Object System.Windows.Forms.TextBox
+    $cap.Dock = 'Top'; $cap.MaxLength = 500
+    $cap2 = New-Object System.Windows.Forms.Label
+    $cap2.Dock = 'Top'; $cap2.Height = 20; $cap2.Text = 'Messaggio (facoltativo):'
+    $fl = New-Object System.Windows.Forms.FlowLayoutPanel
+    $fl.Dock = 'Fill'; $fl.FlowDirection = 'RightToLeft'
+    $bOk = New-Object System.Windows.Forms.Button; $bOk.Text = 'Invia'; $bOk.DialogResult = 'OK'; $bOk.Width = 90
+    $bNo = New-Object System.Windows.Forms.Button; $bNo.Text = 'Annulla'; $bNo.DialogResult = 'Cancel'; $bNo.Width = 90
+    $fl.Controls.Add($bOk); $fl.Controls.Add($bNo)
+    if ($retry) {
+        $bRe = New-Object System.Windows.Forms.Button; $bRe.Text = 'Rifai (tra 3 s)'; $bRe.DialogResult = 'Retry'; $bRe.AutoSize = $true
+        $fl.Controls.Add($bRe)
+    }
+    $pnl.Controls.Add($fl); $pnl.Controls.Add($cap); $pnl.Controls.Add($cap2)
+    $d.Controls.Add($pnl)
+    $d.AcceptButton = $bOk; $d.CancelButton = $bNo
+    $res = $d.ShowDialog()
+    $txt = $cap.Text.Trim()
+    $d.Dispose()
+    return @{ res = [string]$res; text = $txt }
+}
+
+function Encode-Image($img) {
+    $max = 1600; $q = 80
+    $enc = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+    for ($i = 0; $i -lt 3; $i++) {
+        $k = [Math]::Min(1.0, $max / [Math]::Max($img.Width, $img.Height))
+        $w = [int][Math]::Max(1, $img.Width * $k); $h = [int][Math]::Max(1, $img.Height * $k)
+        $bmp = New-Object System.Drawing.Bitmap($w, $h)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.Clear([System.Drawing.Color]::White)
+        $g.InterpolationMode = 'HighQualityBicubic'
+        $g.DrawImage($img, 0, 0, $w, $h)
+        $g.Dispose()
+        $ep = New-Object System.Drawing.Imaging.EncoderParameters(1)
+        $ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]$q)
+        $ms = New-Object System.IO.MemoryStream
+        $bmp.Save($ms, $enc, $ep)
+        $bmp.Dispose()
+        if ($ms.Length -le 1300000) { return [Convert]::ToBase64String($ms.ToArray()) }
+        $max = [int]($max * 0.7); $q = 65
+    }
+    return $null
+}
+
+function Send-Image($img, [string]$kind, [string]$text) {
+    $b64 = Encode-Image $img
+    if (-not $b64) { [System.Windows.Forms.MessageBox]::Show("L'immagine e' troppo grande per essere inviata.", 'Assistenza') | Out-Null; return }
+    $r = Call-Agent '/send' @{ text = $text; img = $b64; kind = $kind } 40
+    if ($r) { Poll $true } else { [System.Windows.Forms.MessageBox]::Show("Impossibile inviare l'immagine: riprova tra poco.", 'Assistenza') | Out-Null }
+}
+
+function Do-Screenshot {
+  try {
+    $wasVisible = $form.Visible
+    $form.Hide()
+    Start-Sleep -Milliseconds 450
+    $bmp = $null
+    do {
+        if ($bmp) { $bmp.Dispose() }
+        $bmp = Capture-Screen
+        $r = Confirm-Image $bmp 'Anteprima screenshot' $true
+        if ($r.res -eq 'Retry') { $ni.ShowBalloonTip(2500, 'Assistenza', 'Nuovo screenshot tra 3 secondi...', [System.Windows.Forms.ToolTipIcon]::Info); Start-Sleep -Seconds 3 }
+    } while ($r.res -eq 'Retry')
+    if ($r.res -eq 'OK') { Send-Image $bmp 'shot' $r.text }
+    $bmp.Dispose()
+    Show-Chat
+  } catch { try { Show-Chat } catch { } }
+}
+
+function Do-Attach([string]$path) {
+  try {
+    if (-not $path) {
+        $dlg = New-Object System.Windows.Forms.OpenFileDialog
+        $dlg.Filter = 'Immagini|*.png;*.jpg;*.jpeg;*.gif;*.bmp|Tutti i file|*.*'
+        if ($dlg.ShowDialog() -ne 'OK') { return }
+        $path = $dlg.FileName
+    }
+    $ms = New-Object System.IO.MemoryStream(, [System.IO.File]::ReadAllBytes($path))
+    $img = $null
+    try { $img = [System.Drawing.Image]::FromStream($ms) } catch { }
+    if (-not $img) { [System.Windows.Forms.MessageBox]::Show("Il file scelto non e' un'immagine che si possa inviare (usa PNG, JPEG, GIF o BMP).", 'Assistenza') | Out-Null; return }
+    $r = Confirm-Image $img 'Anteprima immagine' $false
+    if ($r.res -eq 'OK') { Send-Image $img 'file' $r.text }
+    $img.Dispose()
+  } catch { }
+}
+
+function Do-Paste {
+  try {
+    $img = [System.Windows.Forms.Clipboard]::GetImage()
+    if (-not $img) { return }
+    $r = Confirm-Image $img 'Anteprima immagine incollata' $false
+    if ($r.res -eq 'OK') { Send-Image $img 'file' $r.text }
+    $img.Dispose()
+  } catch { }
+}
+
+$btnShot.Add_Click({ Do-Screenshot })
+$btnImg.Add_Click({ Do-Attach '' })
+$rtb.Add_MouseClick({ param($s, $e)
+    try {
+        $i = $rtb.GetCharIndexFromPosition($e.Location)
+        foreach ($h in $script:hits) { if ($i -ge $h.s -and $i -lt $h.e) { Show-Viewer $h.n; break } }
+    } catch { }
+})
+
 function Render($log) {
     $log = @($log | Where-Object { $_ })
-    $sig = ($log | ForEach-Object { "$($_.dir)|$($_.ts)|$($_.sent)|$($_.text)" }) -join "`n"
+    $sig = ($log | ForEach-Object { "$($_.dir)|$($_.ts)|$($_.sent)|$($_.text)|$($_.img)|$($_.ready)|$($_.failed)" }) -join "`n"
     if ($sig -eq $script:lastSig) { return }
     $script:lastSig = $sig
     $rtb.Clear()
+    $script:hits = @()
     foreach ($e in $log) {
         $when = (To-Local $e.ts).ToString('dd/MM HH:mm')
         $mine = ($e.dir -eq 'user')
@@ -119,7 +314,30 @@ function Render($log) {
         $rtb.SelectionStart = $rtb.TextLength
         $rtb.SelectionColor = [System.Drawing.Color]::Black
         $rtb.SelectionFont = New-Object System.Drawing.Font('Segoe UI', 10)
-        $rtb.AppendText([string]$e.text + "`r`n`r`n")
+        if ($e.img) {
+            $th = $null
+            if ($e.ready) { $th = Get-ThumbRtf ([string]$e.img) }
+            if ($th) {
+                $rtb.SelectionStart = $rtb.TextLength
+                $rtb.SelectedRtf = $th
+                $rtb.SelectionStart = $rtb.TextLength
+                $rtb.SelectionColor = [System.Drawing.Color]::FromArgb(37, 99, 235)
+                $rtb.SelectionFont = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Underline)
+                $st0 = $rtb.TextLength
+                $rtb.AppendText("  [ingrandisci]")
+                $script:hits += @{ s = $st0; e = $rtb.TextLength; n = [string]$e.img }
+                $rtb.SelectionStart = $rtb.TextLength
+                $rtb.SelectionColor = [System.Drawing.Color]::Black
+                $rtb.SelectionFont = New-Object System.Drawing.Font('Segoe UI', 10)
+                $rtb.AppendText("`r`n")
+            } else {
+                $rtb.SelectionColor = [System.Drawing.Color]::Gray
+                $rtb.AppendText($(if ($e.failed) { "(immagine non inviata)`r`n" } else { "(immagine in arrivo...)`r`n" }))
+                $rtb.SelectionColor = [System.Drawing.Color]::Black
+            }
+        }
+        if ($e.text) { $rtb.AppendText([string]$e.text + "`r`n") }
+        $rtb.AppendText("`r`n")
     }
     if (@($log).Count -eq 0) {
         $rtb.SelectionColor = [System.Drawing.Color]::Gray
@@ -144,7 +362,10 @@ function Send-Message {
   } catch { }
 }
 $btn.Add_Click({ Send-Message })
-$inp.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq 'Return' -and -not $e.Shift) { $e.SuppressKeyPress = $true; Send-Message } })
+$inp.Add_KeyDown({ param($s, $e)
+    if ($e.KeyCode -eq 'Return' -and -not $e.Shift) { $e.SuppressKeyPress = $true; Send-Message }
+    elseif ($e.Control -and $e.KeyCode -eq 'V' -and [System.Windows.Forms.Clipboard]::ContainsImage()) { $e.SuppressKeyPress = $true; Do-Paste }
+})
 
 # ---- icona e menu ----
 $ni = New-Object System.Windows.Forms.NotifyIcon
@@ -158,6 +379,7 @@ $miVer = $menu.Items.Add('Agent'); $miVer.Enabled = $false
 $miSt = $menu.Items.Add('Stato'); $miSt.Enabled = $false
 [void]$menu.Items.Add('-')
 $miChat = $menu.Items.Add("Contatta l'assistenza...")
+$miShot = $menu.Items.Add("Invia uno screenshot...")
 $ni.ContextMenuStrip = $menu
 $ni.Visible = $true
 
@@ -169,6 +391,7 @@ function Show-Chat {
     Poll $true
 }
 $miChat.Add_Click({ try { Show-Chat } catch { } })
+$miShot.Add_Click({ try { Do-Screenshot } catch { } })
 $ni.Add_DoubleClick({ try { Show-Chat } catch { } })
 $ni.Add_BalloonTipClicked({ try { Show-Chat } catch { } })
 $form.Add_FormClosing({ param($s, $e) $e.Cancel = $true; $form.Hide() })
@@ -206,6 +429,7 @@ function Poll-Inner {
         if ($newer) {
             $script:lastNotified = [int]$newer.srv_id
             $txt = [string]$newer.text
+            if (-not $txt -and $newer.img) { $txt = 'Ti ha inviato un''immagine.' }
             if ($txt.Length -gt 120) { $txt = $txt.Substring(0, 120) + '...' }
             $ni.ShowBalloonTip(10000, 'Assistenza', $txt, [System.Windows.Forms.ToolTipIcon]::Info)
         }

@@ -42,7 +42,7 @@ import (
 	"github.com/kardianos/service"
 )
 
-const AgentVersion = "1.62.0"
+const AgentVersion = "1.63.0"
 
 // ---- config / stato -------------------------------------------------------
 
@@ -624,6 +624,7 @@ func tick(cfg *Config, st State, log service.Logger) {
 	trayApply(cfg, hb.TrayMode, log)
 	if trayOn(cfg) {
 		chatHandle(hb.Chat)
+		go chatFetchImgs(cfg.ServerURL, st.APIKey) // immagini inviate dall'assistenza (no-op se non ce ne sono)
 	}
 	if hb.Watch {
 		if !watchActive() {
