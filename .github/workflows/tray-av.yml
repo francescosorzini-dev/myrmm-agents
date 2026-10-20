@@ -1,0 +1,66 @@
+name: Tray e antivirus
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ['agent/tray.ps1', 'agent/tray/**', '.github/workflows/tray-av.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  defender:
+    name: Microsoft Defender su ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+      - name: Stato di Defender
+        shell: powershell
+        run: |
+          Get-MpComputerStatus | Select-Object AMServiceEnabled, AntivirusEnabled, RealTimeProtectionEnabled, AntivirusSignatureVersion, AntivirusSignatureLastUpdated | Format-List
+          try { Update-MpSignature -ErrorAction Stop; 'firme aggiornate' } catch { "aggiornamento firme: $_" }
+      - name: Prepara le versioni da confrontare
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/av/old" "$RUNNER_TEMP/av/new"
+          git show 3a6e950:agent/tray.ps1 > "$RUNNER_TEMP/av/old/tray-1.63.0.ps1"
+          cp agent/tray.ps1 "$RUNNER_TEMP/av/new/tray-corrente.ps1"
+      - name: Scansione dei file (MpCmdRun)
+        shell: powershell
+        run: |
+          $mp = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+          $bad = @()
+          foreach ($f in Get-ChildItem "$env:RUNNER_TEMP\av" -Recurse -File) {
+            & $mp -Scan -ScanType 3 -File $f.FullName -DisableRemediation | Out-Host
+            "{0}: codice {1}" -f $f.Name, $LASTEXITCODE | Out-Host
+            if ($LASTEXITCODE -ne 0) { $bad += $f.Name }
+          }
+          "## Scansione file`n" + $(if ($bad) { "Segnalati: " + ($bad -join ', ') } else { 'Nessuno segnalato' }) | Out-File $env:GITHUB_STEP_SUMMARY -Append
+      - name: Esecuzione (AMSI) delle due versioni
+        shell: powershell
+        continue-on-error: true
+        run: |
+          foreach ($f in Get-ChildItem "$env:RUNNER_TEMP\av" -Recurse -File) {
+            Copy-Item $f.FullName (Join-Path $f.DirectoryName 'tray.ps1') -Force
+            $p = Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $f.DirectoryName 'tray.ps1') -PassThru -WindowStyle Hidden
+            Start-Sleep -Seconds 20
+            "{0}: processo {1}" -f $f.Name, $(if ($p.HasExited) { 'terminato, codice ' + $p.ExitCode } else { 'ancora attivo' }) | Out-Host
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          }
+      - name: Rilevamenti di Defender
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 10
+          $d = Get-MpThreatDetection -ErrorAction SilentlyContinue
+          if ($d) { $d | Select-Object ThreatID, InitialDetectionTime, Resources | Format-List | Out-Host } else { 'nessun rilevamento' | Out-Host }
+          Get-MpThreat -ErrorAction SilentlyContinue | Select-Object ThreatName, SeverityID | Format-Table | Out-Host
+          $txt = if ($d) { ($d | ForEach-Object { $_.Resources }) -join "`n" } else { 'nessun rilevamento' }
+          "## Rilevamenti`n``````n$txt`n``````" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          Get-WinEvent -LogName 'Microsoft-Windows-Windows Defender/Operational' -MaxEvents 30 -ErrorAction SilentlyContinue | Where-Object { $_.Id -in 1116,1117,1118,1119 } | ForEach-Object { $_.Message } | Out-Host
