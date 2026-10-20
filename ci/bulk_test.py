@@ -61,10 +61,10 @@ try:
                 if l in ("Libreria", "Automazione", "Report e audit", "Amministrazione", "Parco macchine", "Assistenza"): break
                 out.append(l)
             return out
-        rec("menu laterale: gruppo «Libreria» con Script, Runbook, Pacchetti", i_ok := all(x in after("Libreria") for x in ("Script", "Runbook", "Pacchetti")), after("Libreria"))
+        rec("menu laterale: gruppo «Libreria» con Script, Runbook, Pacchetti", i_ok := all(x in after("Libreria") for x in ("Script", "Runbook", "Pacchetti di monitor")), after("Libreria"))
         p.goto(BASE + "?view=jobs"); p.wait_for_selector("main")
         lines = [l.strip() for l in p.evaluate("[...document.querySelectorAll('.rail, nav')].map(n=>n.innerText).join('\\n')").split("\n") if l.strip()]
-        rec("menu laterale: «Automazione» con Regole, Check, Patch, Attività, Manutenzione", all(x in after("Automazione") for x in ("Regole", "Check", "Patch", "Attività", "Manutenzione")) and "Script" not in after("Automazione"), after("Automazione"))
+        rec("menu laterale: «Automazione» con Regole, Soglie, Patch, Attività, Manutenzione", all(x in after("Automazione") for x in ("Regole", "Soglie", "Patch", "Attività", "Manutenzione")) and "Script" not in after("Automazione"), after("Automazione"))
 
         # ---- Script
         p.goto(BASE + "?view=scripts"); p.wait_for_selector("#sltab")

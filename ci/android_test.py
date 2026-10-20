@@ -167,9 +167,9 @@ try:
         post("amapi_sync")
         rec("seconda sincronizzazione: nessun duplicato", q("SELECT COUNT(*) FROM devices WHERE mobile_id LIKE 'amapi:%'")[0][0] == 2)
 
-        p.goto(BASE + f"?view=device&id={a[0]}"); p.wait_for_selector("main"); html = p.content()
+        p.goto(BASE + f"?view=device&id={a[0]}"); p.wait_for_selector("main"); html = p.evaluate("()=>{var c=document.querySelector('main').cloneNode(true);c.querySelectorAll('script').forEach(function(x){x.remove()});return c.innerHTML}")
         rec("scheda: online (contatto 10 min fa), comandi Google, niente agent", 'class="pill ok">online' in html and "Blocca schermo" in html and "Ripristina (wipe)" in html and "Task manager" not in html and "Inventario completo ora" not in html and "Android Enterprise" in html)
-        p.goto(BASE + f"?view=device&id={b[0]}"); p.wait_for_selector("main"); html = p.content()
+        p.goto(BASE + f"?view=device&id={b[0]}"); p.wait_for_selector("main"); html = p.evaluate("()=>{var c=document.querySelector('main').cloneNode(true);c.querySelectorAll('script').forEach(function(x){x.remove()});return c.innerHTML}")
         rec("scheda: contatto 30 h fa risulta offline", 'class="pill err">offline' in html)
         r = cx.request.post(BASE + "?action=amapi_cmd&cmd=LOCK", form={"device_id": str(a[0])}, max_redirects=0)
         cm = calls("POST", "/devices/d111aaa:issueCommand")

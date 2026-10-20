@@ -86,3 +86,32 @@ func TestTunnelRegisterStoresServer(t *testing.T) {
 		t.Fatalf("permessi: %v %v", fi, err)
 	}
 }
+
+func TestSameServer(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"https://rmm.example.org/index.php", "https://rmm.example.org", true},
+		{"https://rmm.example.org/", "https://RMM.example.org/index.php", true},
+		{"https://rmm.example.org/app/index.php", "https://rmm.example.org/app", true},
+		{"https://rmm.example.org", "http://rmm.example.org", false},
+		{"https://rmm.example.org", "https://evil.example.org", false},
+		{"https://rmm.example.org/app", "https://rmm.example.org/other", false},
+	}
+	for _, c := range cases {
+		if got := sameServer(c.a, c.b); got != c.want {
+			t.Errorf("sameServer(%q,%q)=%v, atteso %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func TestParseTunnelURIAcceptsSameServerVariants(t *testing.T) {
+	raw := "myrmm-tunnel://open?u=https%3A%2F%2Frmm.example.org%2Findex.php&id=abcd1234&token=0123456789abcdef0123&mode=rdp"
+	if _, err := parseTunnelURI(raw, []string{"https://rmm.example.org"}); err != nil {
+		t.Fatalf("server registrato senza index.php rifiutato: %v", err)
+	}
+	if _, err := parseTunnelURI(raw, []string{"https://altro.example.org"}); err == nil {
+		t.Fatal("server non registrato accettato")
+	}
+}

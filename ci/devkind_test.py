@@ -78,13 +78,15 @@ try:
         p.wait_for_load_state()
         def dev(i):
             p.goto(BASE + f"?view=device&id={i}"); p.wait_for_load_state()
-            return p.content(), [a.inner_text().strip() for a in p.query_selector_all(".dnav a")]
+            return p.evaluate("()=>{var c=document.querySelector('main').cloneNode(true);c.querySelectorAll('script').forEach(function(x){x.remove()});return c.innerHTML}"), [a.inner_text().strip() for a in p.query_selector_all(".dnav a")]
+        def ctx(h,k):
+            i=h.find(k); return h[max(0,i-150):i+80] if i>=0 else ""
         hw, tw = dev(idw); hl, tl = dev(idl); hm, tm = dev(idm); hp, tp = dev(idp)
         rec("Windows: patch, servizi, riavvio, comandi PowerShell, sessione e chat", all(x in hw for x in ("Servizi · Windows", "Riavvio e spegnimento", "PowerShell o cmd", "Chat con l", "Sessione")) and "Salute e patch" in " ".join(tw), tw)
         rec("Linux: niente patch Windows né chat; servizi systemd e shell Linux", "Servizi · systemd" in hl and "shell Linux" in hl and "Chat con l" not in hl and "aggiornamenti di Windows" not in hl and not any("patch" in x.lower() for x in tl), (tl, "Servizi · systemd" in hl, "shell Linux" in hl))
         rec("macOS: launchd e shell macOS, niente patch", "Servizi · launchd" in hm and "shell macOS" in hm and "aggiornamenti di Windows" not in hm)
-        rec("Android: nessuna scheda Metriche, Script, Accesso remoto", not any(x.startswith(("Metriche", "Script", "Accesso remoto")) for x in tp), tp)
-        rec("Android: niente servizi, riavvio, comandi, schedulazioni, patch, tunnel, chat, disinstalla agent", not any(x in hp for x in ("Servizi ·", "Riavvio e spegnimento", "Esegui un comando", "Schedulazioni e monitor", "Scansiona patch", "Tunnel", "Chat con l", "Sessione", "disinstalla agent")), [x for x in ("Servizi ·", "Riavvio e spegnimento", "Esegui un comando", "Schedulazioni e monitor", "Scansiona patch", "Tunnel", "Chat con l", "Sessione", "disinstalla agent") if x in hp])
+        rec("Android: nessuna scheda Metriche, Attività, Controllo remoto, Assistenza utente", not any(x.startswith(("Metriche", "Attività", "Controllo remoto", "Assistenza utente")) for x in tp), tp)
+        rec("Android: niente servizi, riavvio, comandi, schedulazioni, patch, tunnel, chat, disinstalla agent", not any(x in hp for x in ("Servizi ·", "Riavvio e spegnimento", "Comando libero", "Schedulazioni e monitor", "Scansiona patch", "Tunnel", "Chat con l", "Sessione", "disinstalla agent")), [x for x in ("Servizi ·", "Riavvio e spegnimento", "Comando libero", "Schedulazioni e monitor", "Scansiona patch", "Tunnel", "Chat con l", "Sessione", "disinstalla agent") if x in hp])
         rec("Android: restano check-in, comandi del telefono, hardware, elenco app e batteria", all(x in hp for x in ("Blocca schermo", "Controlla ora", "Telefono", "Cifratura dei dati", "Chrome", "Salute batteria")) and any(x.startswith("Hardware") for x in tp), tp)
         rec("Android: riquadro con 'app' invece di 'agent'", "versione app" in hp and "versione agent" not in hp)
         p.goto(BASE + "?view=inventory"); p.wait_for_load_state()
