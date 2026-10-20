@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -332,6 +333,8 @@ func buildControls(inst uintptr) {
 
 // editProc: Invio invia, Maiusc+Invio va a capo.
 func editProc(h, m, w, l uintptr) uintptr {
+	defer guard("editProc")
+
 	if m == wmKeyDown && w == 0x0D {
 		if s, _, _ := pGetKeyState.Call(0x10); int16(s) >= 0 {
 			pPostMessage.Call(uintptr(hMain), wmCommand, idSend, 0)
@@ -352,6 +355,8 @@ func editProc(h, m, w, l uintptr) uintptr {
 }
 
 func wndProc(h, m, w, l uintptr) uintptr {
+	defer guard("wndProc")
+
 	switch m {
 	case wmSize:
 		doLayout()
@@ -791,5 +796,12 @@ func openLog() {
 func logf(f string, a ...any) {
 	if logFile != nil {
 		fmt.Fprintf(logFile, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(f, a...))
+	}
+}
+
+// guard registra nel log un panic avvenuto in una funzione chiamata da Windows (altrimenti il processo muore senza lasciare traccia).
+func guard(where string) {
+	if r := recover(); r != nil {
+		logf("PANIC in %s: %v\n%s", where, r, debug.Stack())
 	}
 }

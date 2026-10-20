@@ -335,6 +335,8 @@ func regImgClass() {
 }
 
 func imgProc(h, m, w, l uintptr) uintptr {
+	defer guard("imgProc")
+
 	win := imgWins[windows.HWND(h)]
 	switch m {
 	case wmPaint:
@@ -512,6 +514,7 @@ func thumbFor(name string) *thumbT {
 	}
 	thumbBusy[name] = true
 	go func(c *client) {
+		defer guard("thumb")
 		var t *thumbT
 		if b, err := c.image(name); err == nil {
 			if img, err := decodeAny(b); err == nil {
@@ -521,6 +524,7 @@ func thumbFor(name string) *thumbT {
 				}
 			}
 		}
+		logf("miniatura %s: pronta=%v", name, t != nil)
 		thumbMu.Lock()
 		thumbBusy[name] = false
 		if t != nil {
@@ -538,6 +542,8 @@ func thumbFor(name string) *thumbT {
 }
 
 func rtfRead(cookie, buf, cb, pcb uintptr) uintptr {
+	defer guard("rtfRead")
+
 	n := len(rtfData) - rtfPos
 	if n > int(cb) {
 		n = int(cb)
@@ -566,6 +572,8 @@ func insertThumb(name string, t *thumbT) {
 
 // richProc: un clic su un'anteprima apre l'immagine grande.
 func richProc(h, m, w, l uintptr) uintptr {
+	defer guard("richProc")
+
 	if m == wmLButtonUp {
 		pt := point{int32(int16(l & 0xffff)), int32(int16((l >> 16) & 0xffff))}
 		idx, _, _ := pSendMessage.Call(h, emCharFromPos, 0, uintptr(unsafe.Pointer(&pt)))
