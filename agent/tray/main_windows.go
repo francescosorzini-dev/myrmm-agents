@@ -1,0 +1,700 @@
+//go:build windows
+
+// myrmm-tray: icona nella systray e finestra di chat con l'assistenza (Windows), senza PowerShell.
+// Parla solo con l'agent locale (127.0.0.1). Interfaccia con le API di Windows (user32/shell32/richedit), nessuna libreria grafica.
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+var (
+	user32   = windows.NewLazySystemDLL("user32.dll")
+	shell32  = windows.NewLazySystemDLL("shell32.dll")
+	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	gdi32    = windows.NewLazySystemDLL("gdi32.dll")
+
+	pRegisterClassEx  = user32.NewProc("RegisterClassExW")
+	pCreateWindowEx   = user32.NewProc("CreateWindowExW")
+	pDefWindowProc    = user32.NewProc("DefWindowProcW")
+	pGetMessage       = user32.NewProc("GetMessageW")
+	pTranslateMessage = user32.NewProc("TranslateMessage")
+	pDispatchMessage  = user32.NewProc("DispatchMessageW")
+	pPostMessage      = user32.NewProc("PostMessageW")
+	pSendMessage      = user32.NewProc("SendMessageW")
+	pPostQuitMessage  = user32.NewProc("PostQuitMessage")
+	pShowWindow       = user32.NewProc("ShowWindow")
+	pIsWindowVisible  = user32.NewProc("IsWindowVisible")
+	pSetForegroundWnd = user32.NewProc("SetForegroundWindow")
+	pSetFocus         = user32.NewProc("SetFocus")
+	pMoveWindow       = user32.NewProc("MoveWindow")
+	pGetClientRect    = user32.NewProc("GetClientRect")
+	pSetTimer         = user32.NewProc("SetTimer")
+	pLoadCursor       = user32.NewProc("LoadCursorW")
+	pCreatePopupMenu  = user32.NewProc("CreatePopupMenu")
+	pAppendMenu       = user32.NewProc("AppendMenuW")
+	pTrackPopupMenu   = user32.NewProc("TrackPopupMenu")
+	pDestroyMenu      = user32.NewProc("DestroyMenu")
+	pGetCursorPos     = user32.NewProc("GetCursorPos")
+	pGetWindowTextLen = user32.NewProc("GetWindowTextLengthW")
+	pGetWindowText    = user32.NewProc("GetWindowTextW")
+	pSetWindowText    = user32.NewProc("SetWindowTextW")
+	pEnableWindow     = user32.NewProc("EnableWindow")
+	pGetKeyState      = user32.NewProc("GetKeyState")
+	pSetWindowLongPtr = user32.NewProc("SetWindowLongPtrW")
+	pCallWindowProc   = user32.NewProc("CallWindowProcW")
+	pCreateIconIndir  = user32.NewProc("CreateIconIndirect")
+	pMessageBox       = user32.NewProc("MessageBoxW")
+	pShellNotifyIcon  = shell32.NewProc("Shell_NotifyIconW")
+	pGetModuleHandle  = kernel32.NewProc("GetModuleHandleW")
+	pCreateMutex      = kernel32.NewProc("CreateMutexW")
+	pCreateFont       = gdi32.NewProc("CreateFontW")
+	pCreateBitmap     = gdi32.NewProc("CreateBitmap")
+	pCreateDIBSection = gdi32.NewProc("CreateDIBSection")
+	pGetDC            = user32.NewProc("GetDC")
+	pReleaseDC        = user32.NewProc("ReleaseDC")
+	pGetSysColorBrush = user32.NewProc("GetSysColorBrush")
+	pLoadLibrary      = kernel32.NewProc("LoadLibraryW")
+	pShellExecute     = shell32.NewProc("ShellExecuteW")
+)
+
+const (
+	wmCreate     = 0x0001
+	wmDestroy    = 0x0002
+	wmSize       = 0x0005
+	wmClose      = 0x0010
+	wmSetFont    = 0x0030
+	wmKeyDown    = 0x0100
+	wmChar       = 0x0102
+	wmCommand    = 0x0111
+	wmTimer      = 0x0113
+	wmLButtonDbl = 0x0203
+	wmRButtonUp  = 0x0205
+	wmGetMinMax  = 0x0024
+	wmApp        = 0x8000
+	wmTray       = wmApp + 1 // messaggio dell'icona
+	wmRefresh    = wmApp + 2 // nuovo stato dall'agent
+
+	wsChild      = 0x40000000
+	wsVisible    = 0x10000000
+	wsOverlapped = 0x00CF0000 // WS_OVERLAPPEDWINDOW (senza WS_VISIBLE)
+	wsTabstop    = 0x00010000
+	wsVScroll    = 0x00200000
+	wsBorder     = 0x00800000
+	wsExClient   = 0x00000200
+
+	esMultiline   = 0x0004
+	esAutoVScroll = 0x0040
+	esAutoHScroll = 0x0080
+	esReadOnly    = 0x0800
+	bsPush        = 0x0000
+	bsDefPush     = 0x0001
+	bsAutoCheck   = 0x0003
+
+	swHide    = 0
+	swShow    = 5
+	swRestore = 9
+
+	emSetSel       = 0x00B1
+	emReplaceSel   = 0x00C2
+	emSetCharFmt   = 0x0444
+	emSetBkColor   = 0x0443
+	emSetLimit     = 0x00C5
+	emSetEventMask = 0x0445
+	scfSelection   = 0x0001
+	cfmColor       = 0x40000000
+	cfmBold        = 0x00000001
+	cfmSize        = 0x80000000
+	cfmFace        = 0x20000000
+	cfeBold        = 0x0001
+	wmVScroll      = 0x0115
+	sbBottom       = 7
+
+	bmGetCheck = 0x00F0
+	bnClicked  = 0
+
+	nimAdd, nimModify, nimDelete         = 0, 1, 2
+	nifMessage, nifIcon, nifTip, nifInfo = 0x1, 0x2, 0x4, 0x10
+	niifInfo                             = 0x1
+
+	idSend     = 101
+	idTicket   = 102
+	idSubject  = 103
+	idInput    = 104
+	idRich     = 105
+	idMenuChat = 201
+	timerPoll  = 1
+
+	gwlpWndProc = -4
+)
+
+type wndClassEx struct {
+	Size       uint32
+	Style      uint32
+	WndProc    uintptr
+	ClsExtra   int32
+	WndExtra   int32
+	Instance   windows.Handle
+	Icon       windows.Handle
+	Cursor     windows.Handle
+	Background windows.Handle
+	MenuName   *uint16
+	ClassName  *uint16
+	IconSm     windows.Handle
+}
+
+type point struct{ X, Y int32 }
+type rect struct{ Left, Top, Right, Bottom int32 }
+type msg struct {
+	HWnd    windows.HWND
+	Message uint32
+	WParam  uintptr
+	LParam  uintptr
+	Time    uint32
+	Pt      point
+}
+type minMaxInfo struct {
+	Reserved, MaxSize, MaxPosition, MinTrack, MaxTrack point
+}
+type charFormat struct {
+	Size           uint32
+	Mask           uint32
+	Effects        uint32
+	Height         int32
+	Offset         int32
+	TextColor      uint32
+	CharSet        byte
+	PitchAndFamily byte
+	FaceName       [32]uint16
+}
+type notifyIconData struct {
+	Size            uint32
+	HWnd            windows.HWND
+	ID              uint32
+	Flags           uint32
+	CallbackMessage uint32
+	Icon            windows.Handle
+	Tip             [128]uint16
+	State           uint32
+	StateMask       uint32
+	Info            [256]uint16
+	TimeoutVersion  uint32
+	InfoTitle       [64]uint16
+	InfoFlags       uint32
+	GUIDItem        windows.GUID
+	BalloonIcon     windows.Handle
+}
+type iconInfo struct {
+	IsIcon   uint32
+	XHotspot uint32
+	YHotspot uint32
+	Mask     windows.Handle
+	Color    windows.Handle
+}
+type bitmapInfoHeader struct {
+	Size          uint32
+	Width, Height int32
+	Planes, Bits  uint16
+	Compression   uint32
+	SizeImage     uint32
+	XPels, YPels  int32
+	ClrUsed       uint32
+	ClrImportant  uint32
+}
+
+func u16(s string) *uint16 { p, _ := windows.UTF16PtrFromString(s); return p }
+
+var (
+	cl         *client
+	hMain      windows.HWND
+	hRich      windows.HWND
+	hInput     windows.HWND
+	hSend      windows.HWND
+	hTicket    windows.HWND
+	hSubject   windows.HWND
+	hFont      uintptr
+	hIconOn    windows.Handle
+	hIconOff   windows.Handle
+	origEdit   uintptr
+	editProcCB uintptr
+
+	mu       sync.Mutex
+	cur      *state // ultimo stato ricevuto dall'agent
+	curErr   bool
+	lastSig  string
+	seen     int // ultimo messaggio dell'assistenza visto con la finestra aperta
+	notified int
+	online   = -1
+	visible  bool
+)
+
+func main() {
+	// stesso nome del mutex della tray PowerShell: le due non possono girare insieme
+	h, _, _ := pCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(u16(`Local\myrmm-tray`))))
+	if h == 0 || windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
+		return
+	}
+	dir := os.Getenv("MYRMM_DIR")
+	if dir == "" {
+		if exe, err := os.Executable(); err == nil {
+			dir = filepath.Dir(exe)
+		}
+	}
+	pLoadLibrary.Call(uintptr(unsafe.Pointer(u16("msftedit.dll"))))
+	hFont, _, _ = pCreateFont.Call(uintptr(^uint(17)), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16("Segoe UI")))) // -18 = ~10pt
+	hIconOn, hIconOff = makeIcon(0x2563eb), makeIcon(0x787878)
+
+	inst, _, _ := pGetModuleHandle.Call(0)
+	cursor, _, _ := pLoadCursor.Call(0, 32512)
+	bg, _, _ := pGetSysColorBrush.Call(15) // COLOR_BTNFACE
+	cls := wndClassEx{Style: 0, WndProc: syscall.NewCallback(wndProc), Instance: windows.Handle(inst), Cursor: windows.Handle(cursor), Background: windows.Handle(bg), ClassName: u16("MyrmmTray"), Icon: hIconOn, IconSm: hIconOn}
+	cls.Size = uint32(unsafe.Sizeof(cls))
+	pRegisterClassEx.Call(uintptr(unsafe.Pointer(&cls)))
+	hw, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16("MyrmmTray"))), uintptr(unsafe.Pointer(u16("Assistenza"))), wsOverlapped, 0x80000000, 0x80000000, 460, 580, 0, 0, inst, 0)
+	hMain = windows.HWND(hw)
+	buildControls(inst)
+
+	setBase := func() bool {
+		if cl != nil {
+			return true
+		}
+		b, err := baseFromDir(dir)
+		if err != nil {
+			return false
+		}
+		cl = newClient(b)
+		return true
+	}
+	_ = setBase
+	addIcon()
+	pSetTimer.Call(uintptr(hMain), timerPoll, 2000, 0)
+	go poller(dir)
+
+	var m msg
+	for {
+		r, _, _ := pGetMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+		if int32(r) <= 0 {
+			break
+		}
+		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
+		pDispatchMessage.Call(uintptr(unsafe.Pointer(&m)))
+	}
+	removeIcon()
+}
+
+func buildControls(inst uintptr) {
+	mk := func(class string, text string, style uintptr, id uintptr) windows.HWND {
+		h, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16(class))), uintptr(unsafe.Pointer(u16(text))), style|wsChild|wsVisible, 0, 0, 10, 10, uintptr(hMain), id, inst, 0)
+		pSendMessage.Call(h, wmSetFont, hFont, 1)
+		return windows.HWND(h)
+	}
+	hRich = mk("RICHEDIT50W", "", wsVScroll|esMultiline|esReadOnly|esAutoVScroll|wsBorder, idRich)
+	pSendMessage.Call(uintptr(hRich), emSetBkColor, 0, 0xffffff)
+	hTicket = mk("BUTTON", "Apri una richiesta di assistenza (ticket)", bsAutoCheck|wsTabstop, idTicket)
+	hSubject = mk("EDIT", "", wsBorder|esAutoHScroll|wsTabstop, idSubject)
+	pSendMessage.Call(uintptr(hSubject), emSetLimit, 140, 0)
+	pShowWindow.Call(uintptr(hSubject), swHide)
+	hInput = mk("EDIT", "", wsBorder|esMultiline|esAutoVScroll|wsVScroll|wsTabstop, idInput)
+	pSendMessage.Call(uintptr(hInput), emSetLimit, 2000, 0)
+	hSend = mk("BUTTON", "Invia", bsDefPush|wsTabstop, idSend)
+	editProcCB = syscall.NewCallback(editProc)
+	origEdit, _, _ = pSetWindowLongPtr.Call(uintptr(hInput), uintptr(^uint(3)), editProcCB) // GWLP_WNDPROC = -4
+}
+
+// editProc: Invio invia, Maiusc+Invio va a capo.
+func editProc(h, m, w, l uintptr) uintptr {
+	if m == wmKeyDown && w == 0x0D {
+		if s, _, _ := pGetKeyState.Call(0x10); int16(s) >= 0 {
+			pPostMessage.Call(uintptr(hMain), wmCommand, idSend, 0)
+			return 0
+		}
+	}
+	if m == wmChar && w == 0x0D {
+		if s, _, _ := pGetKeyState.Call(0x10); int16(s) >= 0 {
+			return 0
+		}
+	}
+	r, _, _ := pCallWindowProc.Call(origEdit, h, m, w, l)
+	return r
+}
+
+func wndProc(h, m, w, l uintptr) uintptr {
+	switch m {
+	case wmSize:
+		doLayout()
+		return 0
+	case wmGetMinMax:
+		mm := (*minMaxInfo)(*(*unsafe.Pointer)(unsafe.Pointer(&l)))
+		mm.MinTrack = point{360, 380}
+		return 0
+	case wmClose:
+		hideChat()
+		return 0
+	case wmDestroy:
+		pPostQuitMessage.Call(0)
+		return 0
+	case wmCommand:
+		id := w & 0xffff
+		switch id {
+		case idSend:
+			doSend()
+		case idTicket:
+			doLayout()
+		case idMenuChat:
+			showChat()
+		}
+		return 0
+	case wmTimer:
+		return 0
+	case wmRefresh:
+		refresh()
+		return 0
+	case wmTray:
+		switch l & 0xffff {
+		case wmLButtonDbl:
+			showChat()
+		case wmRButtonUp:
+			popupMenu()
+		case 0x405: // NIN_BALLOONUSERCLICK
+			showChat()
+		}
+		return 0
+	}
+	r, _, _ := pDefWindowProc.Call(h, m, w, l)
+	return r
+}
+
+func doLayout() {
+	var rc rect
+	pGetClientRect.Call(uintptr(hMain), uintptr(unsafe.Pointer(&rc)))
+	W, H := int(rc.Right), int(rc.Bottom)
+	const pad, btnW, chkH, subjH = 8, 84, 22, 24
+	ticket := checked(hTicket)
+	inputH := 70
+	bottom := H - pad
+	// in basso: [input | invia]
+	pMoveWindow.Call(uintptr(hInput), pad, uintptr(bottom-inputH), uintptr(W-3*pad-btnW), uintptr(inputH), 1)
+	pMoveWindow.Call(uintptr(hSend), uintptr(W-pad-btnW), uintptr(bottom-inputH), btnW, uintptr(inputH), 1)
+	y := bottom - inputH - pad
+	if ticket {
+		pShowWindow.Call(uintptr(hSubject), swShow)
+		y -= subjH
+		pMoveWindow.Call(uintptr(hSubject), pad, uintptr(y), uintptr(W-2*pad), subjH, 1)
+		y -= 4
+	} else {
+		pShowWindow.Call(uintptr(hSubject), swHide)
+	}
+	y -= chkH
+	pMoveWindow.Call(uintptr(hTicket), pad, uintptr(y), uintptr(W-2*pad), chkH, 1)
+	pMoveWindow.Call(uintptr(hRich), 0, 0, uintptr(W), uintptr(y-4), 1)
+}
+
+func checked(h windows.HWND) bool {
+	r, _, _ := pSendMessage.Call(uintptr(h), bmGetCheck, 0, 0)
+	return r == 1
+}
+
+func getText(h windows.HWND) string {
+	n, _, _ := pGetWindowTextLen.Call(uintptr(h))
+	if n == 0 {
+		return ""
+	}
+	buf := make([]uint16, n+1)
+	pGetWindowText.Call(uintptr(h), uintptr(unsafe.Pointer(&buf[0])), n+1)
+	return strings.ReplaceAll(windows.UTF16ToString(buf), "\r\n", "\n")
+}
+
+func setText(h windows.HWND, s string) {
+	pSetWindowText.Call(uintptr(h), uintptr(unsafe.Pointer(u16(s))))
+}
+
+func showChat() {
+	visible = true
+	pShowWindow.Call(uintptr(hMain), swShow)
+	pShowWindow.Call(uintptr(hMain), swRestore)
+	pSetForegroundWnd.Call(uintptr(hMain))
+	pSetFocus.Call(uintptr(hInput))
+	doLayout()
+	go pollOnce()
+}
+
+func hideChat() { visible = false; pShowWindow.Call(uintptr(hMain), swHide) }
+
+func doSend() {
+	t := strings.TrimSpace(getText(hInput))
+	if t == "" || cl == nil {
+		return
+	}
+	req := sendReq{Text: t}
+	if checked(hTicket) {
+		ti := strings.TrimSpace(getText(hSubject))
+		if ti == "" {
+			messageBox("Scrivi l'oggetto della richiesta.")
+			return
+		}
+		req.Ticket, req.Title = true, ti
+	}
+	pEnableWindow.Call(uintptr(hSend), 0)
+	go func(c *client) {
+		err := c.send(req)
+		pEnableWindow.Call(uintptr(hSend), 1)
+		if err != nil {
+			messageBox("Impossibile inviare il messaggio: riprova tra poco.")
+			return
+		}
+		// svuota solo a invio riuscito
+		setText(hInput, "")
+		if req.Ticket {
+			pSendMessage.Call(uintptr(hTicket), 0x00F1, 0, 0) // BM_SETCHECK
+			setText(hSubject, "")
+			pPostMessage.Call(uintptr(hMain), wmSize, 0, 0)
+		}
+		pollOnce()
+	}(cl)
+}
+
+func messageBox(s string) {
+	pMessageBox.Call(uintptr(hMain), uintptr(unsafe.Pointer(u16(s))), uintptr(unsafe.Pointer(u16("Assistenza"))), 0x40)
+}
+
+// ---- stato dall'agent -----------------------------------------------------------------------
+
+func poller(dir string) {
+	for {
+		if cl == nil {
+			if b, err := baseFromDir(dir); err == nil {
+				cl = newClient(b)
+			}
+		}
+		pollOnce()
+		d := 5 * time.Second
+		if visible {
+			d = 2 * time.Second
+		}
+		time.Sleep(d)
+	}
+}
+
+func pollOnce() {
+	c := cl
+	if c == nil {
+		setOnline(false)
+		return
+	}
+	mu.Lock()
+	sn := seen
+	mu.Unlock()
+	st, err := c.state(visible, sn)
+	mu.Lock()
+	if err != nil {
+		curErr = true
+		mu.Unlock()
+		setOnline(false)
+		return
+	}
+	curErr = false
+	cur = st
+	mu.Unlock()
+	pPostMessage.Call(uintptr(hMain), wmRefresh, 0, 0)
+}
+
+// refresh gira sul thread dell'interfaccia: aggiorna icona, notifiche e conversazione.
+func refresh() {
+	mu.Lock()
+	st := cur
+	mu.Unlock()
+	if st == nil {
+		return
+	}
+	setOnline(st.Online)
+	if visible {
+		mu.Lock()
+		seen = maxOpID(st.Log)
+		mu.Unlock()
+		renderChat(st.Log)
+		return
+	}
+	if e, ok := newestOp(st, notified); ok {
+		notified = e.SrvID
+		t := e.Text
+		if t == "" && e.Img != "" {
+			t = "Ti ha inviato un'immagine."
+		}
+		if r := []rune(t); len(r) > 120 {
+			t = string(r[:120]) + "..."
+		}
+		balloon("Assistenza", t)
+	}
+}
+
+func renderChat(log []logEntry) {
+	sig := signature(log)
+	if sig == lastSig {
+		return
+	}
+	lastSig = sig
+	setText(hRich, "")
+	for _, s := range renderSegments(log) {
+		appendStyled(s)
+	}
+	pSendMessage.Call(uintptr(hRich), wmVScroll, sbBottom, 0)
+}
+
+func appendStyled(s segment) {
+	pSendMessage.Call(uintptr(hRich), emSetSel, ^uintptr(0), ^uintptr(0))
+	var cf charFormat
+	cf.Size = uint32(unsafe.Sizeof(cf))
+	cf.Mask = cfmColor | cfmBold | cfmSize | cfmFace
+	cf.TextColor = s.Color
+	if s.Bold {
+		cf.Effects = cfeBold
+	}
+	cf.Height = 180 // 9 pt in twips/10... (1/20 pt): 200 = 10 pt
+	if !s.Bold {
+		cf.Height = 200
+	}
+	copy(cf.FaceName[:], windows.StringToUTF16("Segoe UI"))
+	pSendMessage.Call(uintptr(hRich), emSetCharFmt, scfSelection, uintptr(unsafe.Pointer(&cf)))
+	pSendMessage.Call(uintptr(hRich), emReplaceSel, 0, uintptr(unsafe.Pointer(u16(strings.ReplaceAll(s.Text, "\n", "\r")))))
+}
+
+// ---- icona e menu ---------------------------------------------------------------------------
+
+func addIcon() {
+	var nd notifyIconData
+	nd.Size = uint32(unsafe.Sizeof(nd))
+	nd.HWnd, nd.ID = hMain, 1
+	nd.Flags = nifMessage | nifIcon | nifTip
+	nd.CallbackMessage = wmTray
+	nd.Icon = hIconOff
+	copy(nd.Tip[:], windows.StringToUTF16("myrmm"))
+	pShellNotifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(&nd)))
+}
+
+func removeIcon() {
+	var nd notifyIconData
+	nd.Size = uint32(unsafe.Sizeof(nd))
+	nd.HWnd, nd.ID = hMain, 1
+	pShellNotifyIcon.Call(nimDelete, uintptr(unsafe.Pointer(&nd)))
+}
+
+func setOnline(on bool) {
+	v := 0
+	if on {
+		v = 1
+	}
+	if online == v {
+		return
+	}
+	online = v
+	var nd notifyIconData
+	nd.Size = uint32(unsafe.Sizeof(nd))
+	nd.HWnd, nd.ID = hMain, 1
+	nd.Flags = nifIcon | nifTip
+	tip := "myrmm - server non raggiungibile"
+	nd.Icon = hIconOff
+	if on {
+		nd.Icon, tip = hIconOn, "myrmm - collegato"
+	}
+	copy(nd.Tip[:], windows.StringToUTF16(tip))
+	pShellNotifyIcon.Call(nimModify, uintptr(unsafe.Pointer(&nd)))
+}
+
+func balloon(title, text string) {
+	var nd notifyIconData
+	nd.Size = uint32(unsafe.Sizeof(nd))
+	nd.HWnd, nd.ID = hMain, 1
+	nd.Flags = nifInfo
+	nd.InfoFlags = niifInfo
+	copy(nd.InfoTitle[:], windows.StringToUTF16(title))
+	copy(nd.Info[:], windows.StringToUTF16(text))
+	pShellNotifyIcon.Call(nimModify, uintptr(unsafe.Pointer(&nd)))
+}
+
+func popupMenu() {
+	menu, _, _ := pCreatePopupMenu.Call()
+	defer pDestroyMenu.Call(menu)
+	mu.Lock()
+	st := cur
+	mu.Unlock()
+	head, ver, stat := "myrmm", "Agent", "Server non raggiungibile"
+	if st != nil {
+		head, ver = "myrmm - "+st.Host, "Agent v"+st.Version
+		if st.Online {
+			stat = "Collegato al server"
+		}
+	}
+	for _, t := range []string{head, ver, stat} {
+		pAppendMenu.Call(menu, 0x2|0x1, 0, uintptr(unsafe.Pointer(u16(t)))) // MF_GRAYED|MF_DISABLED... (0x1 | 0x2)
+	}
+	pAppendMenu.Call(menu, 0x800, 0, 0) // separatore
+	pAppendMenu.Call(menu, 0, idMenuChat, uintptr(unsafe.Pointer(u16("Contatta l'assistenza..."))))
+	var pt point
+	pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+	pSetForegroundWnd.Call(uintptr(hMain))
+	pTrackPopupMenu.Call(menu, 0, uintptr(pt.X), uintptr(pt.Y), 0, uintptr(hMain), 0)
+	pPostMessage.Call(uintptr(hMain), 0, 0, 0)
+}
+
+// makeIcon: cerchio colorato con una «m» bianca, disegnato a pixel (nessun file di risorse).
+func makeIcon(rgb uint32) windows.Handle {
+	const n = 32
+	glyph := []string{ // «m» 9x6 ingrandita 2x
+		"#.##.##..",
+		"##..#..#.",
+		"#...#...#",
+		"#...#...#",
+		"#...#...#",
+		"#...#...#",
+	}
+	pix := make([]uint32, n*n)
+	mask := make([]byte, n*n/8)
+	cx, cy, r := 15.5, 15.5, 15.0
+	for y := 0; y < n; y++ {
+		for x := 0; x < n; x++ {
+			dx, dy := float64(x)-cx, float64(y)-cy
+			if dx*dx+dy*dy <= r*r {
+				pix[y*n+x] = 0xff000000 | (rgb>>16&0xff)<<0 | (rgb>>8&0xff)<<8 | (rgb&0xff)<<16
+			}
+		}
+	}
+	for gy, row := range glyph {
+		for gx, ch := range row {
+			if ch != '#' {
+				continue
+			}
+			for dy := 0; dy < 2; dy++ {
+				for dx := 0; dx < 2; dx++ {
+					x, y := 7+gx*2+dx+0, 10+gy*2+dy
+					if x < n && y < n {
+						pix[y*n+x] = 0xffffffff
+					}
+				}
+			}
+		}
+	}
+	bi := bitmapInfoHeader{Size: uint32(unsafe.Sizeof(bitmapInfoHeader{})), Width: n, Height: -n, Planes: 1, Bits: 32}
+	dc, _, _ := pGetDC.Call(0)
+	var bits unsafe.Pointer
+	color, _, _ := pCreateDIBSection.Call(dc, uintptr(unsafe.Pointer(&bi)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
+	pReleaseDC.Call(0, dc)
+	if color == 0 || bits == nil {
+		return 0
+	}
+	copy(unsafe.Slice((*uint32)(bits), n*n), pix)
+	m, _, _ := pCreateBitmap.Call(n, n, 1, 1, uintptr(unsafe.Pointer(&mask[0])))
+	ii := iconInfo{IsIcon: 1, Mask: windows.Handle(m), Color: windows.Handle(color)}
+	ic, _, _ := pCreateIconIndir.Call(uintptr(unsafe.Pointer(&ii)))
+	return windows.Handle(ic)
+}
+
+var _ = fmt.Sprint

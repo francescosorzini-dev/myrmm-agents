@@ -42,7 +42,7 @@ import (
 	"github.com/kardianos/service"
 )
 
-const AgentVersion = "1.63.1"
+const AgentVersion = "1.64.0"
 
 // ---- config / stato -------------------------------------------------------
 
@@ -55,6 +55,7 @@ type Config struct {
 	FullInventoryHour int    `json:"full_inventory_hour"` // ogni quante ore raccogliere l'inventario completo (0 = disattivato, default 12)
 	Site              string `json:"site"`                // multi-tenant: sito/cliente (inviato all'enroll)
 	TmMode            string `json:"tm_mode"`             // task manager: "rw" (default) | "ro" solo elenco | "off"
+	TrayImpl          string `json:"tray_impl"`           // Windows: "ps" (script PowerShell, predefinito) | "go" (myrmm-tray.exe); la console può cambiarlo per device
 	TrayMode          string `json:"tray_mode"`           // Windows: "on" (default) icona nella systray + chat con l'assistenza | "off"
 	TrayPort          int    `json:"tray_port"`           // porta locale (127.0.0.1) usata dall'icona; default 47653
 	TunnelMode        string `json:"tunnel_mode"`         // tunnel RDP/SSH aperti dalla console: "on" (default) | "off"
@@ -87,6 +88,11 @@ func loadConfig() (*Config, error) {
 	if b, e := os.ReadFile(filepath.Join(dataDir(), "tray.mode")); e == nil { // scelta fatta dalla console: prevale su config.json
 		if m := strings.ToLower(strings.TrimSpace(string(b))); m == "on" || m == "off" {
 			c.TrayMode = m
+		}
+	}
+	if b, e := os.ReadFile(filepath.Join(dataDir(), "tray.impl")); e == nil {
+		if m := strings.ToLower(strings.TrimSpace(string(b))); m == "go" || m == "ps" {
+			c.TrayImpl = m
 		}
 	}
 	if c.PollSeconds <= 0 {
@@ -191,6 +197,7 @@ type heartbeatResp struct {
 	Deploy       []deployTask  `json:"deploy,omitempty"`    // sonda: PC su cui installare l'agent (richiesta dell'amministratore)
 	Probe        *probeCfg     `json:"probe,omitempty"`     // sonda di rete: elenco apparati da controllare (solo se diverso da quello in uso)
 	Uninstall    *UninstallReq `json:"uninstall,omitempty"` // l'amministratore ha rimosso il device: disinstalla l'agent
+	TrayImpl     string        `json:"tray_impl,omitempty"` // "ps" | "go": quale programma disegna l'icona
 	TrayMode     string        `json:"tray_mode,omitempty"` // "on" | "off": icona e chat decise dalla console (prevale su config.json)
 }
 
@@ -621,7 +628,7 @@ func tick(cfg *Config, st State, log service.Logger) {
 		return
 	}
 	badKeyCount = 0
-	trayApply(cfg, hb.TrayMode, log)
+	trayApply(cfg, hb.TrayMode, hb.TrayImpl, log)
 	if trayOn(cfg) {
 		chatHandle(hb.Chat)
 		go chatFetchImgs(cfg.ServerURL, st.APIKey) // immagini inviate dall'assistenza (no-op se non ce ne sono)
@@ -882,6 +889,10 @@ func main() {
 			return
 		case "tunnel": // helper dell'operatore: porta locale -> relay del server -> device
 			os.Exit(tunnelClient(os.Args[2:]))
+		case "tunnel-register": // helper dell'operatore: registra il collegamento myrmm-tunnel:// (un clic dalla console)
+			os.Exit(tunnelRegisterMain(os.Args[2:]))
+		case "tunnel-uri": // lanciato dal sistema quando si apre un collegamento myrmm-tunnel://
+			os.Exit(tunnelURIMain(os.Args[2:]))
 		case "diag": // diagnostica completa, anche senza servizio in esecuzione
 			out := collectDiag()
 			fmt.Println(out)

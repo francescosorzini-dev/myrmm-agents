@@ -125,7 +125,7 @@ def handle(m):
     meth, mid, p = m.get("method"), m.get("id"), m.get("params") or {}
     if mid is None: return None   # notifiche
     if meth == "initialize":
-        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.63.1"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
+        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.64.0"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
     if meth == "ping": return {}
     if meth == "tools/list":
         return {"tools": [{"name": n, "description": d, "inputSchema": s} for n, (d, s, _) in TOOLS.items()]}
