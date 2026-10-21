@@ -12,6 +12,7 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	"strings"
+	"unicode/utf16"
 )
 
 // Funzioni sulle immagini senza nulla di Windows (si provano ovunque): decodifica della bitmap degli appunti,
@@ -196,4 +197,30 @@ func thumbRTF(img *image.RGBA) string {
 func decodeAny(b []byte) (image.Image, error) {
 	img, _, err := image.Decode(bytes.NewReader(b))
 	return img, err
+}
+
+// fileFilter: filtro per la finestra «Apri file» di Windows: coppie descrizione/modelli separate da NUL, con doppio NUL finale.
+// (windows.StringToUTF16 va in panico se la stringa contiene NUL: il pulsante «Allega immagine» non faceva nulla per questo.)
+func fileFilter(pairs ...string) []uint16 {
+	var out []uint16
+	for _, p := range pairs {
+		out = append(out, utf16.Encode([]rune(p))...)
+		out = append(out, 0)
+	}
+	return append(out, 0)
+}
+
+// sniffExt: estensione dal contenuto ("" se non è un'immagine nota).
+func sniffExt(b []byte) string {
+	switch {
+	case bytes.HasPrefix(b, []byte("\x89PNG\r\n\x1a\n")):
+		return ".png"
+	case bytes.HasPrefix(b, []byte("\xff\xd8\xff")):
+		return ".jpg"
+	case bytes.HasPrefix(b, []byte("GIF8")):
+		return ".gif"
+	case len(b) > 12 && bytes.HasPrefix(b, []byte("RIFF")) && string(b[8:12]) == "WEBP":
+		return ".webp"
+	}
+	return ""
 }

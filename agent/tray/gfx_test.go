@@ -109,3 +109,17 @@ func TestPNGAndRTF(t *testing.T) {
 		t.Error("dati non immagine devono dare errore")
 	}
 }
+
+func TestFileFilterAndSniff(t *testing.T) {
+	f := fileFilter("Immagini (PNG, JPG)", "*.png;*.jpg")
+	// descrizione NUL modelli NUL NUL
+	n := len("Immagini (PNG, JPG)") + 1 + len("*.png;*.jpg") + 1 + 1
+	if len(f) != n || f[len(f)-1] != 0 || f[len(f)-2] != 0 {
+		t.Errorf("filtro: %d unità, attese %d, %v", len(f), n, f[len(f)-3:])
+	}
+	for ext, b := range map[string][]byte{".png": []byte("\x89PNG\r\n\x1a\nxx"), ".jpg": []byte("\xff\xd8\xff\xe0"), ".gif": []byte("GIF89a"), ".webp": []byte("RIFF\x00\x00\x00\x00WEBPVP8 "), "": []byte("MZ")} {
+		if got := sniffExt(b); got != ext {
+			t.Errorf("sniffExt %q = %q", ext, got)
+		}
+	}
+}

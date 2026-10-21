@@ -626,6 +626,10 @@ func renderChat(log []logEntry) {
 				insertThumb(s.Img, t)
 				continue
 			}
+			if thumbFailed(s.Img) {
+				appendClickable(s.Img, segment{Text: "[immagine: clic qui per aprirla]\n", Color: colOp, Bold: true})
+				continue
+			}
 			s = segment{Text: "(immagine in caricamento...)", Color: colMuted}
 		}
 		appendStyled(s)

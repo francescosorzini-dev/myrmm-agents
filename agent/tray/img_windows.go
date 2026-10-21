@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -243,13 +244,17 @@ func onShotDone() {
 
 func doAttach() {
 	buf := make([]uint16, 1024)
-	filter := windows.StringToUTF16("Immagini (PNG, JPG, GIF)\x00*.png;*.jpg;*.jpeg;*.gif\x00")
-	filter = append(filter, 0)
+	filter := fileFilter("Immagini (PNG, JPG, GIF)", "*.png;*.jpg;*.jpeg;*.gif")
 	ofn := openFileName{Owner: hMain, Filter: &filter[0], File: &buf[0], MaxFile: uint32(len(buf)), Title: u16("Scegli un'immagine da inviare"), Flags: 0x00001000 | 0x00000800 | 0x00080000 | 0x4} // FILEMUSTEXIST|PATHMUSTEXIST|EXPLORER|HIDEREADONLY
 	ofn.StructSize = uint32(unsafe.Sizeof(ofn))
 	if r, _, _ := pGetOpenFileName.Call(uintptr(unsafe.Pointer(&ofn))); r == 0 {
+		if e, _, _ := windows.NewLazySystemDLL("comdlg32.dll").NewProc("CommDlgExtendedError").Call(); e != 0 {
+			logf("allega: GetOpenFileName fallita, codice %d", e)
+			messageBox(fmt.Sprintf("Non riesco ad aprire la finestra di scelta del file (errore %d).", e))
+		}
 		return
 	}
+	logf("allega: scelto un file")
 	path := windows.UTF16ToString(buf)
 	st, err := os.Stat(path)
 	if err != nil || st.Size() > 40<<20 {
@@ -489,6 +494,7 @@ var (
 	thumbs    = map[string]*thumbT{}
 	thumbBusy = map[string]bool{}
 	thumbFail = map[string]int{}
+	thumbErr  = map[string]string{}
 
 	rtfData []byte
 	rtfPos  int
@@ -518,27 +524,54 @@ func thumbFor(name string) *thumbT {
 	go func(c *client) {
 		defer guard("thumb")
 		var t *thumbT
-		if b, err := c.image(name); err == nil {
-			if img, err := decodeAny(b); err == nil {
-				s := scaleTo(img, 260, 170)
-				t = &thumbT{rtf: thumbRTF(s), w: s.Bounds().Dx(), h: s.Bounds().Dy()}
-			}
+		why := ""
+		if b, err := c.image(name); err != nil {
+			why = "scaricamento: " + err.Error()
+		} else if img, err := decodeAny(b); err != nil {
+			why = fmt.Sprintf("decodifica (%d byte, tipo %q): %v", len(b), sniffExt(b), err)
+		} else {
+			s := scaleTo(img, 260, 170)
+			t = &thumbT{rtf: thumbRTF(s), w: s.Bounds().Dx(), h: s.Bounds().Dy()}
 		}
-		logf("miniatura %s: pronta=%v", name, t != nil)
+		logf("miniatura %s: pronta=%v %s", name, t != nil, why)
 		thumbMu.Lock()
 		thumbBusy[name] = false
 		if t != nil {
 			thumbs[name] = t
 		} else {
 			thumbFail[name]++
+			thumbErr[name] = why
 		}
+		nf := thumbFail[name]
 		thumbMu.Unlock()
+		if t == nil && nf < 3 {
+			time.Sleep(time.Duration(nf) * 2 * time.Second) // nuovo tentativo tra poco, senza girare a vuoto
+		}
 		mu.Lock()
 		lastSig = "" // forza il ridisegno
 		mu.Unlock()
 		pPostMessage.Call(uintptr(hMain), wmRefresh, 0, 0)
 	}(cl)
 	return nil
+}
+
+// thumbFailed: l'anteprima non si è potuta preparare (dopo tre tentativi): si mostra un collegamento per aprire l'immagine.
+func thumbFailed(name string) bool {
+	thumbMu.Lock()
+	defer thumbMu.Unlock()
+	return thumbs[name] == nil && thumbFail[name] >= 3
+}
+
+// appendClickable: testo in coda alla conversazione che, se cliccato, apre l'immagine.
+func appendClickable(name string, s segment) {
+	pSendMessage.Call(uintptr(hRich), emSetSel, ^uintptr(0), ^uintptr(0))
+	var a, b int32
+	pSendMessage.Call(uintptr(hRich), emGetSel, uintptr(unsafe.Pointer(&a)), uintptr(unsafe.Pointer(&b)))
+	appendStyled(s)
+	pSendMessage.Call(uintptr(hRich), emSetSel, ^uintptr(0), ^uintptr(0))
+	var c, d int32
+	pSendMessage.Call(uintptr(hRich), emGetSel, uintptr(unsafe.Pointer(&c)), uintptr(unsafe.Pointer(&d)))
+	imgSpans = append(imgSpans, imgSpan{from: int(a), to: int(d), name: name})
 }
 
 func rtfRead(cookie, buf, cb, pcb uintptr) uintptr {
@@ -618,12 +651,26 @@ func openViewer(name string) {
 		return
 	}
 	go func() {
+		defer guard("openViewer")
 		b, err := c.image(name)
 		if err != nil {
+			logf("apri immagine %s: scaricamento: %v", name, err)
+			messageBox("Non riesco a scaricare l'immagine dall'agent: " + err.Error())
 			return
 		}
 		img, err := decodeAny(b)
 		if err != nil {
+			// formato che la tray non sa leggere (es. WebP): si apre con il programma di Windows per le immagini
+			ext := sniffExt(b)
+			logf("apri immagine %s: decodifica (%q): %v", name, ext, err)
+			if ext != "" {
+				p := filepath.Join(os.TempDir(), "myrmm-"+strings.TrimSuffix(filepath.Base(name), filepath.Ext(name))+ext)
+				if os.WriteFile(p, b, 0o600) == nil {
+					pShellExecute.Call(0, uintptr(unsafe.Pointer(u16("open"))), uintptr(unsafe.Pointer(u16(p))), 0, 0, 1)
+					return
+				}
+			}
+			messageBox("Non riesco ad aprire questa immagine.")
 			return
 		}
 		viewMu.Lock()

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kardianos/service"
+	"golang.org/x/sys/windows/registry"
 )
 
 // myrmm-tray.exe compresso (generato da release.sh da ./tray): la tray è un programma nativo, senza script.
@@ -68,6 +69,7 @@ func trayStart(cfg *Config, log service.Logger) {
 			_ = os.Remove(oldScript)
 			_ = os.Remove(exePath)
 		}
+		trayRunKey(exePath, false)
 		return
 	}
 	chatServe(cfg)
@@ -79,6 +81,7 @@ func trayStart(cfg *Config, log service.Logger) {
 	h := "go:" + hex.EncodeToString(sum[:])
 	if b, err := os.ReadFile(hashFile); err == nil && string(b) == h {
 		if _, e2 := os.Stat(exePath); e2 == nil {
+			trayRunKey(exePath, true)
 			return // già installata e aggiornata
 		}
 	}
@@ -115,8 +118,26 @@ Start-ScheduledTask -TaskName 'myrmm-tray'`
 		_ = log.Warningf("tray: registrazione attività fallita: %v", err)
 		return
 	}
+	trayRunKey(exePath, true)
 	_ = os.WriteFile(hashFile, []byte(h), 0o644)
 	_ = log.Infof("tray: icona installata (attività pianificata myrmm-tray)")
+}
+
+// Avvio all'accesso, seconda via oltre all'attività pianificata: la chiave Run di sistema parte per ogni utente che accede
+// (anche dove Utilità di pianificazione non lancia l'attività). Il blocco per sessione della tray evita le doppie copie.
+const runKeyPath = `SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
+
+func trayRunKey(exe string, on bool) {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, runKeyPath, registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer k.Close()
+	if on {
+		_ = k.SetStringValue("myrmm-tray", `"`+exe+`"`)
+	} else {
+		_ = k.DeleteValue("myrmm-tray")
+	}
 }
 
 func psq(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }

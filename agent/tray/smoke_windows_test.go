@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,11 +40,15 @@ func TestTraySmoke(t *testing.T) {
 			atomic.AddInt32(&guard, 1)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"host": "PC-PROVA", "version": "0", "online": true,
-			"log": []map[string]any{{"dir": "op", "img": "ci0123456789abcdef0123456789abcdef", "ready": true, "srv_id": 2, "ts": "2026-10-20T10:00:00Z", "author": "Assistenza"}, {"dir": "op", "text": "ciao dall'assistenza", "srv_id": 1, "ts": "2026-10-20T10:00:00Z", "author": "Assistenza"}}})
+			"log": []map[string]any{{"dir": "op", "img": "ci0123456789abcdef0123456789abcdef", "ready": true, "srv_id": 2, "ts": "2026-10-20T10:00:00Z", "author": "Assistenza"}, {"dir": "op", "img": "cibad0123456789abcdef0123456789ab", "ready": true, "srv_id": 3, "ts": "2026-10-20T10:00:00Z", "author": "Assistenza"}, {"dir": "op", "text": "ciao dall'assistenza", "srv_id": 1, "ts": "2026-10-20T10:00:00Z", "author": "Assistenza"}}})
 	})
 	var imgHits int32
 	mux.HandleFunc("/img", func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&imgHits, 1)
+		if strings.HasPrefix(r.URL.Query().Get("n"), "cibad") { // formato che la tray non sa leggere: WebP
+			w.Write([]byte("RIFF\x00\x00\x00\x00WEBPVP8 "))
+			return
+		}
 		b, _ := encodePNG(testImg())
 		w.Header().Set("Content-Type", "image/png")
 		w.Write(b)
@@ -117,6 +122,10 @@ func TestTraySmoke(t *testing.T) {
 		t.Errorf("miniatura non disegnata: %d pixel dell'immagine su un controllo %dx%d:%s\nlog:\n%s", n, w, hh, info, lg)
 	} else {
 		t.Logf("miniatura disegnata: %d pixel", n)
+	}
+
+	if lg, _ := os.ReadFile(filepath.Join(dir, "myrmm-tray.log")); !bytes.Contains(lg, []byte("pronta=false decodifica")) || bytes.Contains(lg, []byte("PANIC")) {
+		t.Errorf("l'immagine non leggibile doveva dare un errore di decodifica nel log, senza panico:\n%s", lg)
 	}
 
 	second := exec.Command(exe)
