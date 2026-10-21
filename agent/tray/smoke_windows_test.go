@@ -106,6 +106,18 @@ func TestTraySmoke(t *testing.T) {
 		t.Errorf("miniatura non inserita nella chat. Log:\n%s", lg)
 	}
 
+	// la miniatura deve essere DISEGNATA, non solo inserita: si cattura il controllo e si contano i pixel del colore dell'immagine di prova
+	// (blu 128 in tutta l'immagine; il testo della chat non ha mai questo valore)
+	time.Sleep(1500 * time.Millisecond)
+	rich, _, _ := user32.NewProc("FindWindowExW").Call(h, 0, uintptr(unsafe.Pointer(u16("RICHEDIT50W"))), 0)
+	if rich == 0 {
+		t.Error("controllo RichEdit non trovato")
+	} else if n, w, hh := capturedBlue(rich); n < 5000 {
+		t.Errorf("miniatura non disegnata: %d pixel dell'immagine su un controllo %dx%d", n, w, hh)
+	} else {
+		t.Logf("miniatura disegnata: %d pixel", n)
+	}
+
 	second := exec.Command(exe)
 	second.Env = cmd.Env
 	if err := second.Start(); err != nil {
@@ -119,4 +131,39 @@ func TestTraySmoke(t *testing.T) {
 		second.Process.Kill()
 		t.Error("la seconda copia non è uscita: il mutex non funziona")
 	}
+}
+
+// capturedBlue: PrintWindow del controllo in un bitmap a 32 bit; conta i pixel con blu = 128 (colore dell'immagine di prova).
+func capturedBlue(hwnd uintptr) (n, w, h int) {
+	var rc struct{ L, T, R, B int32 }
+	user32.NewProc("GetClientRect").Call(hwnd, uintptr(unsafe.Pointer(&rc)))
+	w, h = int(rc.R), int(rc.B)
+	if w <= 0 || h <= 0 {
+		return
+	}
+	gdi := windows.NewLazySystemDLL("gdi32.dll")
+	dc, _, _ := user32.NewProc("GetDC").Call(0)
+	mem, _, _ := gdi.NewProc("CreateCompatibleDC").Call(dc)
+	bmp, _, _ := gdi.NewProc("CreateCompatibleBitmap").Call(dc, uintptr(w), uintptr(h))
+	gdi.NewProc("SelectObject").Call(mem, bmp)
+	user32.NewProc("PrintWindow").Call(hwnd, mem, 1) // PW_CLIENTONLY
+	bi := struct {
+		Size            uint32
+		W, H            int32
+		Planes, Bits    uint16
+		Comp, SizeImg   uint32
+		XPels, YPels    int32
+		ClrUsed, ClrImp uint32
+	}{Size: 40, W: int32(w), H: -int32(h), Planes: 1, Bits: 32}
+	px := make([]byte, w*h*4)
+	gdi.NewProc("GetDIBits").Call(mem, bmp, 0, uintptr(h), uintptr(unsafe.Pointer(&px[0])), uintptr(unsafe.Pointer(&bi)), 0)
+	for i := 0; i+3 < len(px); i += 4 {
+		if px[i] == 128 { // blu (BGRA)
+			n++
+		}
+	}
+	gdi.NewProc("DeleteObject").Call(bmp)
+	gdi.NewProc("DeleteDC").Call(mem)
+	user32.NewProc("ReleaseDC").Call(0, dc)
+	return
 }

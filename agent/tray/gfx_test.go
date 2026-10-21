@@ -93,9 +93,14 @@ func TestPNGAndRTF(t *testing.T) {
 	if _, err := decodeAny(b); err != nil {
 		t.Fatal(err)
 	}
-	r := thumbRTF(b, 8, 8)
-	if !strings.HasPrefix(r, `{\rtf1{\pict\pngblip`) || !strings.Contains(r, `\picwgoal120`) || !strings.HasSuffix(r, `\par}`) {
-		t.Errorf("rtf: %.80s", r)
+	r := thumbRTF(src)
+	// 8x8 a 24 bit: righe da 24 byte (già multiple di 4), intestazione da 40 byte
+	if !strings.HasPrefix(r, `{\rtf1{\pict\dibitmap0`) || !strings.Contains(r, `\wbmwidthbytes24`) || !strings.Contains(r, `\picwgoal120`) || !strings.HasSuffix(r, `\par}`) {
+		t.Errorf("rtf: %.120s", r)
+	}
+	hx := r[strings.Index(r, " ")+1 : strings.LastIndex(r, "}\\par}")]
+	if len(hx) != 2*(40+24*8) {
+		t.Errorf("dati bitmap: %d cifre, attese %d", len(hx), 2*(40+24*8))
 	}
 	if bg := bgra(src); len(bg) != 8*8*4 || bg[3] != 255 {
 		t.Error("bgra")

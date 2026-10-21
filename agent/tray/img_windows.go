@@ -521,9 +521,7 @@ func thumbFor(name string) *thumbT {
 		if b, err := c.image(name); err == nil {
 			if img, err := decodeAny(b); err == nil {
 				s := scaleTo(img, 260, 170)
-				if p, err := encodePNG(s); err == nil {
-					t = &thumbT{rtf: thumbRTF(p, s.Bounds().Dx(), s.Bounds().Dy()), w: s.Bounds().Dx(), h: s.Bounds().Dy()}
-				}
+				t = &thumbT{rtf: thumbRTF(s), w: s.Bounds().Dx(), h: s.Bounds().Dy()}
 			}
 		}
 		logf("miniatura %s: pronta=%v", name, t != nil)

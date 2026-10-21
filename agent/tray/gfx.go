@@ -154,14 +154,39 @@ func bgra(img *image.RGBA) []byte {
 	return out
 }
 
-// thumbRTF: frammento RTF con l'immagine PNG a dimensione ridotta, da inserire nella chat (RichEdit capisce \pngblip).
-func thumbRTF(pngData []byte, w, h int) string {
+// thumbRTF: frammento RTF con l'immagine a dimensione ridotta, da inserire nella chat. Si usa \dibitmap0 (bitmap a 24 bit senza
+// intestazione di file) e non \pngblip: RichEdit riserva lo spazio per un PNG ma su alcune versioni di Windows non lo disegna.
+// \picw/\pich sono in centesimi di millimetro (96 dpi), \picwgoal/\pichgoal in twip.
+func thumbRTF(img *image.RGBA) string {
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	rb := (w*3 + 3) &^ 3 // righe di 24 bit allineate a 4 byte
 	var sb strings.Builder
-	fmt.Fprintf(&sb, `{\rtf1{\pict\pngblip\picw%d\pich%d\picwgoal%d\pichgoal%d `, w, h, w*15, h*15)
+	fmt.Fprintf(&sb, `{\rtf1{\pict\dibitmap0\wbmbitspixel24\wbmplanes1\wbmwidthbytes%d\picw%d\pich%d\picwgoal%d\pichgoal%d `, rb, w*2646/100, h*2646/100, w*15, h*15)
 	const hexd = "0123456789abcdef"
-	for _, c := range pngData {
-		sb.WriteByte(hexd[c>>4])
-		sb.WriteByte(hexd[c&15])
+	put := func(b ...byte) {
+		for _, c := range b {
+			sb.WriteByte(hexd[c>>4])
+			sb.WriteByte(hexd[c&15])
+		}
+	}
+	le32 := func(v int) []byte { return []byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)} }
+	put(le32(40)...) // BITMAPINFOHEADER
+	put(le32(w)...)
+	put(le32(h)...)  // altezza positiva: righe dal basso
+	put(1, 0, 24, 0) // piani, bit per pixel
+	put(le32(0)...)  // BI_RGB
+	put(le32(rb * h)...)
+	put(le32(2835)...)
+	put(le32(2835)...)
+	put(le32(0)...)
+	put(le32(0)...)
+	pad := make([]byte, rb-w*3)
+	for y := h - 1; y >= 0; y-- {
+		for x := 0; x < w; x++ {
+			o := y*img.Stride + x*4
+			put(img.Pix[o+2], img.Pix[o+1], img.Pix[o]) // blu, verde, rosso
+		}
+		put(pad...)
 	}
 	sb.WriteString("}\\par}")
 	return sb.String()

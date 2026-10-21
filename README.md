@@ -1,4 +1,4 @@
-# myrmm v1.65.0 — manuale
+# myrmm v1.65.1 — manuale
 
 RMM (Remote Monitoring & Management) leggero per gestire flotte di PC e server di più clienti, pensato per
 girare su un **hosting condiviso Apache/PHP con SQLite**: nessun processo sempre attivo, nessun cron,
@@ -1099,6 +1099,7 @@ dist/                        binari di tutte le piattaforme (prodotti da release
 
 ## 17. Cronologia
 
+- **1.65.1** — tray: le miniature nella chat si disegnano davvero (RichEdit riservava lo spazio ma non disegnava il PNG: ora bitmap `\dibitmap0`); il test su Windows controlla i pixel.
 - **1.65.0** — **riordino della console** (§8.64): menu con ricerca di voci e funzioni, nomi unici (Assistenza utenti, Soglie, Pacchetti di monitor, Registro operazioni, Installa agent, Telefoni Android, API e assistente, Impostazioni), scheda del device con Attività in seconda posizione e strumenti di lancio chiusi, Controllo remoto e Assistenza utente separati; **solo tray in Go** (PowerShell eliminata, §8.63); **tunnel con un clic senza preparazione** (il servizio registra da solo il protocollo).
 - **1.64.2** — tray in Go: il ciclo dei messaggi era su un thread diverso da quello della finestra (si bloccava all'avvio, a volte): thread del sistema fissato con `LockOSThread`.
 - **1.64.1** — tray in Go: una sola copia (il mutex non veniva riconosciuto), icona riaggiunta se Explorer non è pronto all'accesso o viene riavviato, log di diagnosi in `%TEMP%\myrmm-tray.log`.
