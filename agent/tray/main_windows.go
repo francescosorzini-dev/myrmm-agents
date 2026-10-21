@@ -253,8 +253,28 @@ var (
 func init() { runtime.LockOSThread() }
 
 // Main: icona nella systray e finestra di chat; parte dall'agent (sottocomando «tray») nella sessione dell'utente.
+// dpiInit rende il processo «system DPI aware»: senza, Windows ingrandisce a bitmap la finestra (testo sfocato e «enorme») e lo screenshot cattura solo la parte alta a sinistra dello schermo.
+var dpi = 96
+
+func dpiInit() {
+	if p := user32.NewProc("SetProcessDpiAwarenessContext"); p.Find() == nil {
+		p.Call(^uintptr(1)) // DPI_AWARENESS_CONTEXT_SYSTEM_AWARE (-2)
+	} else {
+		user32.NewProc("SetProcessDPIAware").Call()
+	}
+	if g := user32.NewProc("GetDpiForSystem"); g.Find() == nil {
+		if d, _, _ := g.Call(); d >= 96 {
+			dpi = int(d)
+		}
+	}
+}
+
+// sc converte pixel a 96 dpi in pixel reali.
+func sc(n int) int { return (n*dpi + 48) / 96 }
+
 func Main(o Options) {
 	opts = o
+	dpiInit()
 	// stesso nome del mutex della tray PowerShell: le due non possono girare insieme
 	h, _, merr := pCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(u16(`Local\myrmm-tray`))))
 	if h == 0 || merr == windows.ERROR_ALREADY_EXISTS {
@@ -275,7 +295,7 @@ func Main(o Options) {
 	r, _, _ := windows.NewLazySystemDLL("ole32.dll").NewProc("OleInitialize").Call(0)
 	logf("OleInitialize -> 0x%x", r)
 	pLoadLibrary.Call(uintptr(unsafe.Pointer(u16("msftedit.dll"))))
-	hFont, _, _ = pCreateFont.Call(uintptr(^uint(17)), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16("Segoe UI")))) // -18 = ~10pt
+	hFont, _, _ = pCreateFont.Call(uintptr(-sc(18)), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16("Segoe UI")))) // -18 = ~10pt
 	hIconOn, hIconOff = makeIcon(0x2563eb), makeIcon(0x787878)
 
 	inst, _, _ := pGetModuleHandle.Call(0)
@@ -284,7 +304,7 @@ func Main(o Options) {
 	cls := wndClassEx{Style: 0, WndProc: syscall.NewCallback(wndProc), Instance: windows.Handle(inst), Cursor: windows.Handle(cursor), Background: windows.Handle(bg), ClassName: u16("MyrmmTray"), Icon: hIconOn, IconSm: hIconOn}
 	cls.Size = uint32(unsafe.Sizeof(cls))
 	pRegisterClassEx.Call(uintptr(unsafe.Pointer(&cls)))
-	hw, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16("MyrmmTray"))), uintptr(unsafe.Pointer(u16("Assistenza"))), wsOverlapped, 0x80000000, 0x80000000, 460, 580, 0, 0, inst, 0)
+	hw, _, _ := pCreateWindowEx.Call(0, uintptr(unsafe.Pointer(u16("MyrmmTray"))), uintptr(unsafe.Pointer(u16("Assistenza"))), wsOverlapped, 0x80000000, 0x80000000, uintptr(sc(460)), uintptr(sc(580)), 0, 0, inst, 0)
 	hMain = windows.HWND(hw)
 	logf("finestra creata: %v, dir=%s", hw != 0, dir)
 	buildControls(inst)
@@ -437,28 +457,28 @@ func doLayout() {
 	var rc rect
 	pGetClientRect.Call(uintptr(hMain), uintptr(unsafe.Pointer(&rc)))
 	W, H := int(rc.Right), int(rc.Bottom)
-	const pad, btnW, chkH, subjH = 8, 84, 22, 24
+	pad, btnW, chkH, subjH := sc(8), sc(84), sc(22), sc(24)
 	ticket := checked(hTicket)
-	inputH := 70
-	const barH = 26
+	inputH := sc(70)
+	barH := sc(26)
 	bottom := H - pad
 	// in basso: [input | invia], sopra la barra con Screenshot e Allega immagine
-	pMoveWindow.Call(uintptr(hInput), pad, uintptr(bottom-inputH), uintptr(W-3*pad-btnW), uintptr(inputH), 1)
-	pMoveWindow.Call(uintptr(hSend), uintptr(W-pad-btnW), uintptr(bottom-inputH), btnW, uintptr(inputH), 1)
-	pMoveWindow.Call(uintptr(hShot), pad, uintptr(bottom-inputH-barH-4), 110, barH, 1)
-	pMoveWindow.Call(uintptr(hAttach), pad+118, uintptr(bottom-inputH-barH-4), 150, barH, 1)
+	pMoveWindow.Call(uintptr(hInput), uintptr(pad), uintptr(bottom-inputH), uintptr(W-3*pad-btnW), uintptr(inputH), 1)
+	pMoveWindow.Call(uintptr(hSend), uintptr(W-pad-btnW), uintptr(bottom-inputH), uintptr(btnW), uintptr(inputH), 1)
+	pMoveWindow.Call(uintptr(hShot), uintptr(pad), uintptr(bottom-inputH-barH-sc(4)), uintptr(sc(110)), uintptr(barH), 1)
+	pMoveWindow.Call(uintptr(hAttach), uintptr(pad+sc(118)), uintptr(bottom-inputH-barH-sc(4)), uintptr(sc(150)), uintptr(barH), 1)
 	y := bottom - inputH - barH - 4 - pad
 	if ticket {
 		pShowWindow.Call(uintptr(hSubject), swShow)
 		y -= subjH
-		pMoveWindow.Call(uintptr(hSubject), pad, uintptr(y), uintptr(W-2*pad), subjH, 1)
-		y -= 4
+		pMoveWindow.Call(uintptr(hSubject), uintptr(pad), uintptr(y), uintptr(W-2*pad), uintptr(subjH), 1)
+		y -= sc(4)
 	} else {
 		pShowWindow.Call(uintptr(hSubject), swHide)
 	}
 	y -= chkH
-	pMoveWindow.Call(uintptr(hTicket), pad, uintptr(y), uintptr(W-2*pad), chkH, 1)
-	pMoveWindow.Call(uintptr(hRich), 0, 0, uintptr(W), uintptr(y-4), 1)
+	pMoveWindow.Call(uintptr(hTicket), uintptr(pad), uintptr(y), uintptr(W-2*pad), uintptr(chkH), 1)
+	pMoveWindow.Call(uintptr(hRich), 0, 0, uintptr(W), uintptr(y-sc(4)), 1)
 }
 
 func checked(h windows.HWND) bool {

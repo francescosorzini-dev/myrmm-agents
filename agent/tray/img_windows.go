@@ -410,10 +410,10 @@ func screenSize() (int, int) {
 func confirmImage(src *image.RGBA, retry bool) int {
 	regImgClass()
 	sw, sh := screenSize()
-	view := scaleTo(src, minInt(720, sw-120), minInt(440, sh-260))
+	view := scaleTo(src, minInt(sc(720), sw-sc(120)), minInt(sc(440), sh-sc(260)))
 	vw, vh := view.Bounds().Dx(), view.Bounds().Dy()
-	const pad, labH, btnH, btnW = 12, 28, 32, 110
-	cw := maxInt(vw, 3*btnW+2*8) + 2*pad
+	pad, labH, btnH, btnW := sc(12), sc(28), sc(32), sc(110)
+	cw := maxInt(vw, 3*btnW+2*sc(8)) + 2*pad
 	ch := pad + labH + vh + pad + btnH + pad
 	rc := rect{0, 0, int32(cw), int32(ch)}
 	const style = 0x00C00000 | 0x00080000 // WS_CAPTION | WS_SYSMENU
@@ -433,10 +433,10 @@ func confirmImage(src *image.RGBA, retry bool) int {
 	mk("STATIC", "Questa immagine verrà inviata all'assistenza. Controlla che non mostri dati riservati.", 0, pad, pad, cw-2*pad, labH, 0)
 	x := cw - pad - btnW
 	mk("BUTTON", "Invia", bsDefPush|wsTabstop, x, ch-pad-btnH, btnW, btnH, idOK)
-	x -= btnW + 8
+	x -= btnW + sc(8)
 	mk("BUTTON", "Annulla", bsPush|wsTabstop, x, ch-pad-btnH, btnW, btnH, idCancel)
 	if retry {
-		x -= btnW + 8
+		x -= btnW + sc(8)
 		mk("BUTTON", "Rifai", bsPush|wsTabstop, x, ch-pad-btnH, btnW, btnH, idRetry)
 	}
 	pEnableWindow.Call(uintptr(hMain), 0)

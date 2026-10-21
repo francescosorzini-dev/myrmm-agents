@@ -1,4 +1,4 @@
-# myrmm v1.67.0 — manuale
+# myrmm v1.67.1 — manuale
 
 RMM (Remote Monitoring & Management) leggero per gestire flotte di PC e server di più clienti, pensato per
 girare su un **hosting condiviso Apache/PHP con SQLite**: nessun processo sempre attivo, nessun cron,
@@ -1115,6 +1115,7 @@ dist/                        binari di tutte le piattaforme (prodotti da release
 
 ## 17. Cronologia
 
+- **1.67.1** — **tray con DPI corretto**: il processo è «DPI aware» (prima Windows ingrandiva a bitmap la finestra e lo screenshot catturava solo la parte alta a sinistra dello schermo); font e layout seguono la scala dello schermo. **Attività**: i job lanciati da ticket, alert o a mano mostrano il nome dello script (il job ne registra l'id) invece della prima riga di codice; i job già in elenco restano com'erano.
 - **1.67.0** — **tray integrata nell'agent** (sottocomando avviato dal servizio in ogni sessione, causa dei mancati avvii: permessi di ProgramData), **chat per utente** sui PC con più utenti, configuratore `tray-config` e script di libreria, immagini su richiesta con motivo dell'errore (§8.66).
 - **1.66.1** — lo script di installazione Windows scarica l'agent **compresso** (`install_bin&gz=1`, circa metà dei byte, in cache sul server): stesso binario, stesso controllo SHA-256 dopo la decompressione. Test: `ci/install_gz_test.py` (server di prova) e `ci/gz_fetch_test.py` (Windows PowerShell 5.1 vero, nel repository pubblico).
 - **1.66.0** — **etichette QR anche per i device** (stampa di massa dall'elenco, stesso formato degli asset) con **codice permanente** che non cambia mai; il QR apre la scheda dell'RMM (login richiesto); **ticket legati anche agli asset** (colonna e filtro, riquadro Ticket con apertura rapida su device e asset).

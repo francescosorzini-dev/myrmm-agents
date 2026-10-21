@@ -787,6 +787,8 @@ try:
         p.click("form[action$=tk_run] button[type=submit]"); p.wait_for_selector("main p.ok")
         jt2 = dbq("SELECT id,expires FROM jobs WHERE origin=?", f"tk:{tid}")
         rec("ticket: script lanciato dal ticket (con scadenza)", len(jt2) == 1 and jt2[0][1] is not None, str(jt2))
+        p.goto(BASE + "?view=jobs"); p.wait_for_selector("main table")
+        rec("attività: il job lanciato dal ticket mostra il nome dello script, non il codice", "Monitor: RAM in uso" in p.inner_text(f"tr[data-job='{jt2[0][0]}']"), p.inner_text(f"tr[data-job='{jt2[0][0]}']")[:150])
         post_res(jt2[0][0], 0)
         p.goto(BASE + f"?view=tickets&id={tid}"); p.wait_for_selector("ul.work")
         rec("ticket: l'esito torna nel ticket", "Script: ok" in p.inner_text("ul.work"), p.inner_text("ul.work")[:200])

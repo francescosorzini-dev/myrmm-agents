@@ -42,7 +42,7 @@ import (
 	"github.com/kardianos/service"
 )
 
-const AgentVersion = "1.67.0"
+const AgentVersion = "1.67.1"
 
 // ---- config / stato -------------------------------------------------------
 
