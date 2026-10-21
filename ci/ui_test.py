@@ -2199,6 +2199,54 @@ try:
         rec("mappa: nessun errore JS", not errs, str(errs)[:200])
         c.close()
         # <<< t137
+        # >>> t166
+        # --- 1.66.0: etichette QR dei device, codice permanente, ticket legati agli asset
+        c, p = new(); adm(c, p); errs = []; p.on("pageerror", lambda e: errs.append(str(e))); p.on("dialog", lambda d: d.accept())
+        dq_ = lambda sql, *a: q_(prodp, sql, *a)
+        tid_ = dq_("SELECT id FROM asset_types ORDER BY id LIMIT 1")[0][0]
+        c.request.post(BASE + "?action=asset_save", form={"id": "0", "type_id": str(tid_), "name": "Stampante QR", "site": "Acme", "status": "attivo"}, headers=H, max_redirects=0)
+        ast_ = dq_("SELECT id FROM assets WHERE name='Stampante QR'")[0][0]
+        r_ = c.request.get(BASE + "?action=device_label&ids=1")
+        b_ = r_.text(); cd_ = dq_("SELECT label_code FROM devices WHERE id=1")[0][0]
+        rec("QR device: pagina etichette con il codice permanente", r_.status == 200 and "data-u=" in b_ and "view=go&amp;l=" + cd_ in b_ and cd_.startswith("d") and len(cd_) == 10, cd_)
+        rec("QR device: stesso formato (64×30 mm, #id)", "64mm" in b_ and "#1<" in b_)
+        c.request.get(BASE + "?action=device_label&ids=1")
+        rec("QR device: il codice non cambia ristampando", dq_("SELECT label_code FROM devices WHERE id=1")[0][0] == cd_)
+        c.request.get(BASE + f"?action=asset_label&ids={ast_}"); ca_ = dq_("SELECT label_code FROM assets WHERE id=?", ast_)[0][0]
+        rec("QR asset: codice permanente con prefisso a", ca_.startswith("a") and len(ca_) == 10, ca_)
+        rec("QR device: nessun id → errore", c.request.get(BASE + "?action=device_label&ids=").status == 400)
+        r_ = c.request.get(BASE + f"?view=go&l={cd_}", max_redirects=0)
+        rec("QR: il codice del device porta alla scheda", r_.status in (301, 302, 303) and "view=device&id=1" in r_.headers.get("location", ""), r_.headers.get("location", ""))
+        r_ = c.request.get(BASE + f"?view=go&l={ca_}", max_redirects=0)
+        rec("QR: il codice dell'asset porta alla scheda", f"view=asset&id={ast_}" in r_.headers.get("location", ""), r_.headers.get("location", ""))
+        r_ = c.request.get(BASE + "?view=go&l=dzzzzzzzzz", max_redirects=0)
+        rec("QR: codice sconosciuto → elenco con messaggio", "view=devices" in r_.headers.get("location", "") and "msg=" in r_.headers.get("location", ""))
+        anon_ = br.new_context(); r_ = anon_.request.get(BASE + f"?view=go&l={cd_}", max_redirects=0)
+        rec("QR: senza login niente scheda (passa dall'accesso)", "view=device&id=1" not in r_.headers.get("location", ""), r_.status); anon_.close()
+        p.goto(BASE + f"?view=go&l={cd_}"); p.wait_for_selector("#tkq")
+        rec("QR: scheda device con riquadro ticket e apertura rapida", "view=device" in p.url and p.locator("#tkq form input[name=title]").count() == 1)
+        p.fill("#tkq input[name=title]", "Schermo nero"); p.click("#tkq button[type=submit]"); p.wait_for_load_state("load")
+        rec("ticket da QR device: creato sul device", dq_("SELECT COUNT(*) FROM tickets WHERE title='Schermo nero' AND device_id=1 AND asset_id=0")[0][0] == 1)
+        p.goto(BASE + f"?view=go&l={ca_}"); p.wait_for_selector("#tkq")
+        p.fill("#tkq input[name=title]", "Carta inceppata"); p.click("#tkq button[type=submit]"); p.wait_for_load_state("load")
+        rec("ticket da QR asset: creato sull'asset", dq_("SELECT COUNT(*) FROM tickets WHERE title='Carta inceppata' AND asset_id=?", ast_)[0][0] == 1)
+        tkid_ = dq_("SELECT id FROM tickets WHERE title='Carta inceppata'")[0][0]
+        p.goto(BASE + f"?view=tickets&id={tkid_}"); rec("ticket: la scheda mostra l'asset collegato", "Stampante QR" in p.content() and f"view=asset&amp;id={ast_}" in p.content(), p.content()[:0] + str(("Stampante QR" in p.content(), p.url)))
+        p.goto(BASE + f"?view=tickets&ast={ast_}"); rec("ticket: filtro per asset", "Carta inceppata" in p.inner_text("main") and "Schermo nero" not in p.inner_text("main"))
+        p.goto(BASE + "?view=tickets"); rec("ticket: elenco con colonna Asset", "<th>Asset</th>" in p.content())
+        p.goto(BASE + f"?view=asset&id={ast_}"); rec("asset: riquadro ticket con quello aperto", p.locator("#tkq").count() == 1 and "Carta inceppata" in p.locator("#tkq").inner_text())
+        r_ = c.request.post(BASE + "?action=tk_new", form={"title": "senza oggetto"}, headers=H, max_redirects=0)
+        rec("ticket: senza device né asset è rifiutato", dq_("SELECT COUNT(*) FROM tickets WHERE title='senza oggetto'")[0][0] == 0)
+        p.goto(BASE + "?view=devices"); p.wait_for_selector("#invT"); p.click("#actsel summary")
+        rec("elenco device: voce «Stampa etichette QR» disattiva senza selezione", p.locator("#actsel .mi[data-lbl][disabled]").count() == 1)
+        p.locator("#invT tbody input[type=checkbox]").first.check(); p.click("#actsel summary") if not p.locator("#actsel[open]").count() else None
+        with c.expect_page() as np_:
+            p.locator("#actsel .mi[data-lbl]").click()
+        lp_ = np_.value; lp_.wait_for_load_state("load"); lp_.wait_for_selector(".qr svg")
+        rec("elenco device: etichette QR in una nuova scheda con il QR disegnato", lp_.locator(".l").count() >= 1 and lp_.locator(".qr svg").count() >= 1); lp_.close()
+        rec("QR: nessun errore JS", not errs, str(errs)[:200])
+        c.close()
+        # <<< t166
         br.close()
 finally:
     sp.terminate(); shutil.rmtree(tmp, ignore_errors=True)

@@ -1,4 +1,4 @@
-# myrmm v1.65.3 — manuale
+# myrmm v1.66.0 — manuale
 
 RMM (Remote Monitoring & Management) leggero per gestire flotte di PC e server di più clienti, pensato per
 girare su un **hosting condiviso Apache/PHP con SQLite**: nessun processo sempre attivo, nessun cron,
@@ -938,6 +938,15 @@ Anche qui c'è il **riepilogo prima di agire**, ma solo quando serve: se il devi
 - **Scheda del device.** Ordine: Panoramica, **Attività** (subito dopo), Salute, Metriche, **Controllo remoto** (sessione, tunnel, RustDesk), **Assistenza utente** (chat e icona di quel PC), Diagnostica e servizi, Hardware e software, Cliente e dati, Agent e accesso. La Panoramica ha i pulsanti di accesso rapido (Esegui uno script, Tunnel, Attività, Assistenza). In **Attività**: prima *In corso e in coda*, poi lo *Storico*; gli strumenti di lancio (script o sequenza, comando libero, schedulazioni) sono tre riquadri chiusi in alto, che si aprono con un clic: niente più scorrimento per arrivare alle attività.
 - **Test.** `ci/ui_test.py` (719 verifiche), `ci/devkind_test.py`, `ci/android_test.py`, `ci/bulk_test.py` adattati.
 
+## 8.65 Etichette QR per device e asset, ticket legati agli asset (1.66.0)
+
+- **Etichette QR dei device.** Stesso formato delle etichette degli asset (64×30 mm: QR a sinistra; a destra nome, modello, cliente · reparto, numero di serie, `#id`). Dall'elenco **Device → Azioni → Stampa etichette QR** (sui device spuntati, massimo 200) oppure dalla scheda del device (pulsante **Etichetta QR**). Si apre in una nuova scheda, pronta per la stampa.
+- **Il QR non cambia nel tempo.** Alla prima stampa ogni device o asset riceve un **codice permanente** (`d…` per i device, `a…` per gli asset, 10 caratteri) salvato nel database: rinominare, spostare di cliente o ristampare non cambia il QR, quindi le etichette già attaccate restano valide. Il QR contiene `?view=go&l=CODICE`, non l'id. Le etichette asset stampate prima della 1.66.0 puntavano direttamente alla scheda e continuano a funzionare.
+- **Cosa succede inquadrando il QR.** Si apre la pagina dell'RMM di quell'oggetto: la scheda del device (con in cima il riquadro **Ticket**) o quella dell'asset. Senza login passa dall'accesso e poi arriva alla scheda. Un codice sconosciuto, o di un oggetto fuori dal perimetro dell'utente, porta all'elenco con un messaggio. Basta il ruolo di tecnico (operatore) per aprire ticket; il lettore vede la scheda e i ticket.
+- **Ticket ↔ asset.** Un ticket può essere legato a un **device**, a un **asset** o a entrambi. Se l'asset ha un device collegato, il ticket prende anche quello. L'elenco ticket ha la colonna **Asset** e il filtro `&ast=ID`; la scheda del ticket mostra il link all'asset; la scheda dell'asset ha il riquadro **Ticket** con quelli aperti e l'apertura rapida (titolo + priorità).
+- **Apertura rapida dal telefono.** Il riquadro Ticket (titolo, priorità, **Apri ticket**) è pensato per chi arriva dal QR: due tocchi e il ticket nasce già legato a quel device o asset. Il cliente (perimetro) viene dall'oggetto.
+- **Test.** `ci/ui_test.py` (+19 verifiche: codici permanenti, redirect, perimetro, creazione ticket da QR, filtro, menu di massa).
+
 ## 9. Controllo remoto (RustDesk)
 
 Orchestrazione, non un componente proprietario. Due script in libreria:
@@ -1100,6 +1109,7 @@ dist/                        binari di tutte le piattaforme (prodotti da release
 
 ## 17. Cronologia
 
+- **1.66.0** — **etichette QR anche per i device** (stampa di massa dall'elenco, stesso formato degli asset) con **codice permanente** che non cambia mai; il QR apre la scheda dell'RMM (login richiesto); **ticket legati anche agli asset** (colonna e filtro, riquadro Ticket con apertura rapida su device e asset).
 - **1.65.3** — script di libreria **«myrmm MCP: collega Claude Desktop (Windows)»**: configura Claude Desktop di un utente per usare il server MCP (senza perdere la sua configurazione e senza il token nel profilo); il messaggio finale dell'installazione lo indica.
 - **1.65.2** — tray: **«Allega immagine»** funziona (la finestra di scelta del file andava in panico per il filtro), anteprime che non si riescono a leggere diventano un collegamento «[immagine: clic qui per aprirla]» (si apre col programma di Windows) e il log dice il perché; **avvio all'accesso più sicuro** (chiave Run di sistema oltre all'attività pianificata).
 - **1.65.1** — tray: le miniature nella chat si disegnano davvero (RichEdit riservava lo spazio ma non disegnava il PNG: ora bitmap `\dibitmap0`); il test su Windows controlla i pixel.
