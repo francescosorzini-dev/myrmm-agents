@@ -264,6 +264,9 @@ func main() {
 			dir = filepath.Dir(exe)
 		}
 	}
+	// RichEdit crea le immagini come oggetti OLE: senza OleInitialize sul thread della finestra lo spazio viene riservato ma non si disegna nulla
+	r, _, _ := windows.NewLazySystemDLL("ole32.dll").NewProc("OleInitialize").Call(0)
+	logf("OleInitialize -> 0x%x", r)
 	pLoadLibrary.Call(uintptr(unsafe.Pointer(u16("msftedit.dll"))))
 	hFont, _, _ = pCreateFont.Call(uintptr(^uint(17)), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(u16("Segoe UI")))) // -18 = ~10pt
 	hIconOn, hIconOff = makeIcon(0x2563eb), makeIcon(0x787878)
