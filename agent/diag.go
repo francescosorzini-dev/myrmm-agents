@@ -147,19 +147,32 @@ func collectDiag() string {
 	} else {
 		d.f("tray.json assente: l'API locale non è partita (il servizio si avvia con tray_mode diverso da off?)")
 	}
-	if b, e := os.ReadFile(chatFile()); e == nil {
-		var f struct {
-			Ack, Read int
-			Log       []chatEntry
-		}
-		if json.Unmarshal(b, &f) == nil {
+	d.raw(trayDiag())
+	if ents, e := os.ReadDir(dataDir()); e == nil {
+		for _, en := range ents {
+			n := en.Name()
+			if n != "chat.json" && !(strings.HasPrefix(n, "chat-") && strings.HasSuffix(n, ".json")) {
+				continue
+			}
+			b, e := os.ReadFile(filepath.Join(dataDir(), n))
+			if e != nil {
+				continue
+			}
+			var f struct {
+				User      string
+				Ack, Read int
+				Log       []chatEntry
+			}
+			if json.Unmarshal(b, &f) != nil {
+				continue
+			}
 			unsent := 0
 			for _, en := range f.Log {
 				if en.Dir == "user" && !en.Sent {
 					unsent++
 				}
 			}
-			d.f("chat.json: %d messaggi, ultimo ricevuto #%d, letto fino a #%d, messaggi non ancora inviati al server: %d", len(f.Log), f.Ack, f.Read, unsent)
+			d.f("%s (utente %q): %d messaggi, ultimo ricevuto #%d, letto fino a #%d, non ancora inviati al server: %d", n, f.User, len(f.Log), f.Ack, f.Read, unsent)
 			for i := max(0, len(f.Log)-5); i < len(f.Log); i++ {
 				t := f.Log[i].Text
 				if len([]rune(t)) > 60 {
@@ -270,8 +283,7 @@ func diagServer(d *diagBuf, cfg *Config) {
 }
 
 func diagLocalAPI(port int) string {
-	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/state", port), nil)
-	req.Header.Set("X-Myrmm-Tray", "1")
+	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/ping", port), nil)
 	resp, err := (&http.Client{Timeout: 4 * time.Second}).Do(req)
 	if err != nil {
 		return fmt.Sprintf("API locale 127.0.0.1:%d: NON risponde (%v)", port, err)
@@ -280,10 +292,10 @@ func diagLocalAPI(port int) string {
 	var st struct {
 		Online  bool
 		Version string
-		Log     []any
+		Users   int
 	}
 	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&st)
-	return fmt.Sprintf("API locale 127.0.0.1:%d: HTTP %d, versione %s, collegato al server: %v, messaggi: %d", port, resp.StatusCode, st.Version, st.Online, len(st.Log))
+	return fmt.Sprintf("API locale 127.0.0.1:%d: HTTP %d, versione %s, collegato al server: %v, conversazioni: %d", port, resp.StatusCode, st.Version, st.Online, st.Users)
 }
 
 // diagExec: esecuzione come job dalla console.

@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package tray
 
 import (
 	"bytes"
@@ -25,7 +25,7 @@ import (
 func TestTraySmoke(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "myrmm-tray.exe")
-	if out, err := exec.Command("go", "build", "-o", exe, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", exe, "./cmd/myrmm-tray").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	var hits, guard int32

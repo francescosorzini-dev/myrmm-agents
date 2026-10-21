@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -141,17 +143,18 @@ func chatImgStore(b []byte) (string, bool) {
 // chatImgClean: toglie dal disco le immagini non più citate dalla conversazione e quelle più vecchie di 30 giorni.
 func chatImgClean() {
 	chatMu.Lock()
-	chatLoad()
 	keep := map[string]bool{}
-	for i := range chatLog {
-		if chatLog[i].Img == "" {
-			continue
+	for _, se := range chatSessions {
+		for i := range se.log {
+			if se.log[i].Img == "" {
+				continue
+			}
+			if t, err := time.Parse(time.RFC3339, se.log[i].TS); err == nil && time.Since(t) > chatImgKeep {
+				se.log[i].Img = ""
+				continue
+			}
+			keep[se.log[i].Img] = true
 		}
-		if t, err := time.Parse(time.RFC3339, chatLog[i].TS); err == nil && time.Since(t) > chatImgKeep {
-			chatLog[i].Img = ""
-			continue
-		}
-		keep[chatLog[i].Img] = true
 	}
 	chatMu.Unlock()
 	ents, _ := os.ReadDir(chatImgDir())
@@ -165,89 +168,205 @@ func chatImgClean() {
 	}
 }
 
-type chatResp struct {
-	Msgs []struct {
-		ID     int    `json:"id"`
-		Author string `json:"author"`
-		Text   string `json:"text"`
-		TS     string `json:"ts"`
-		Img    string `json:"img"`
-		Kind   string `json:"kind"`
-	} `json:"msgs"`
-	Ok []string `json:"ok"`
+type chatMsg struct {
+	ID     int    `json:"id"`
+	Author string `json:"author"`
+	Text   string `json:"text"`
+	TS     string `json:"ts"`
+	Img    string `json:"img"`
+	Kind   string `json:"kind"`
 }
+
+// chatResp: risposta del server alla sezione «chat» dell'heartbeat. Dalla 1.67.0 ogni utente collegato ha la sua conversazione:
+// Sessions è indicizzata per nome utente. Msgs/Ok al livello superiore valgono solo per un server precedente (una sola conversazione).
+type chatResp struct {
+	Msgs     []chatMsg            `json:"msgs"`
+	Ok       []string             `json:"ok"`
+	Sessions map[string]*chatResp `json:"sessions,omitempty"`
+}
+
+// chatDisabled: la console (o il configuratore locale) ha disattivato l'icona: /state lo dice alle tray, che escono.
+var chatDisabled atomic.Bool
 
 var trayFast atomic.Int64 // fine (UnixNano) del collegamento rapido richiesto dalla tray
 
+// chatSess: la conversazione di un utente (una sessione Windows). Ogni utente ha il suo file chat-<hash>.json; chat.json è il
+// file della versione precedente, adottato dal primo utente che si collega.
+type chatSess struct {
+	user       string
+	ack, read  int // ultimo messaggio dell'operatore ricevuto / visto dall'utente
+	log        []chatEntry
+	loaded     bool
+	last, open time.Time // ultima richiesta della tray / ultima volta che la finestra era aperta
+}
+
 var (
-	chatMu     sync.Mutex
-	chatLog    []chatEntry
-	chatAck    int // ultimo messaggio dell'operatore ricevuto dall'agent
-	chatRead   int // ultimo messaggio visto dall'utente (finestra aperta)
-	chatLoaded bool
-	trayLast   time.Time // ultima richiesta della tray
-	trayOpen   time.Time // ultima volta che la finestra della chat era aperta
-	chatWake   = make(chan struct{}, 1)
-	hbOK       time.Time // ultimo heartbeat riuscito
-	chatMeta   struct{ Host, Site string }
+	chatMu       sync.Mutex
+	chatSessions = map[string]*chatSess{}
+	chatWake     = make(chan struct{}, 1)
+	hbOK         time.Time // ultimo heartbeat riuscito
+	chatMeta     struct{ Host, Site string }
+	chatServer   struct{ URL, Key string } // per scaricare su richiesta le immagini dell'assistenza
+	chatImgErr   = map[string]string{}     // nome immagine -> ultimo errore di scaricamento
+	// chatResolve: da chiave della tray a utente. Windows la sostituisce con la verifica della chiave di sessione; altrove (e nei test) vale «1».
+	chatResolve = func(key string) (string, bool) { return "", key == "1" }
 )
 
-func chatFile() string { return filepath.Join(dataDir(), "chat.json") }
+func sessKey(u string) string { return strings.ToLower(strings.TrimSpace(u)) }
 
-func chatLoad() {
-	if chatLoaded {
-		return
+func chatSessFile(u string) string {
+	if sessKey(u) == "" {
+		return filepath.Join(dataDir(), "chat.json")
 	}
-	chatLoaded = true
-	var f struct {
-		Ack, Read int
-		Log       []chatEntry
+	sum := sha256.Sum256([]byte(sessKey(u)))
+	return filepath.Join(dataDir(), "chat-"+hex.EncodeToString(sum[:6])+".json")
+}
+
+// chatSession restituisce (creandola e caricandola) la conversazione di un utente. Chiamare con chatMu preso.
+func chatSession(u string) *chatSess {
+	k := sessKey(u)
+	if s := chatSessions[k]; s != nil {
+		return s
 	}
-	if b, err := os.ReadFile(chatFile()); err == nil && json.Unmarshal(b, &f) == nil {
-		chatAck, chatRead, chatLog = f.Ack, f.Read, f.Log
+	s := &chatSess{user: strings.TrimSpace(u)}
+	chatSessions[k] = s
+	f := chatSessFile(u)
+	b, err := os.ReadFile(f)
+	if err != nil && k != "" { // prima volta per questo utente: adotta la conversazione unica della versione precedente
+		legacy := chatSessFile("")
+		if lb, e := os.ReadFile(legacy); e == nil {
+			b, err = lb, nil
+			_ = os.Rename(legacy, legacy+".old")
+		}
+	}
+	if err == nil {
+		var fl struct {
+			Ack, Read int
+			Log       []chatEntry
+		}
+		if json.Unmarshal(b, &fl) == nil {
+			s.ack, s.read, s.log = fl.Ack, fl.Read, fl.Log
+		}
+	}
+	s.loaded = true
+	return s
+}
+
+func (s *chatSess) saveLocked() {
+	if len(s.log) > 200 {
+		s.log = s.log[len(s.log)-200:]
+	}
+	b, _ := json.Marshal(map[string]any{"User": s.user, "Ack": s.ack, "Read": s.read, "Log": s.log})
+	f := chatSessFile(s.user)
+	_ = os.WriteFile(f+".tmp", b, 0o600)
+	_ = os.Rename(f+".tmp", f)
+}
+
+// chatLoadAll: all'avvio rilegge le conversazioni salvate, così i messaggi non ancora inviati partono anche se l'utente non è più collegato.
+func chatLoadAll() {
+	ents, _ := os.ReadDir(dataDir())
+	chatMu.Lock()
+	defer chatMu.Unlock()
+	for _, e := range ents {
+		n := e.Name()
+		if !strings.HasPrefix(n, "chat-") || !strings.HasSuffix(n, ".json") {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(dataDir(), n)); err == nil {
+			var fl struct{ User string }
+			if json.Unmarshal(b, &fl) == nil && fl.User != "" {
+				chatSession(fl.User)
+			}
+		}
 	}
 }
 
-func chatSaveLocked() {
-	if len(chatLog) > 200 {
-		chatLog = chatLog[len(chatLog)-200:]
+func chatSessionsSorted() []*chatSess {
+	out := make([]*chatSess, 0, len(chatSessions))
+	for _, s := range chatSessions {
+		out = append(out, s)
 	}
-	b, _ := json.Marshal(map[string]any{"Ack": chatAck, "Read": chatRead, "Log": chatLog})
-	_ = os.WriteFile(chatFile()+".tmp", b, 0o600)
-	_ = os.Rename(chatFile()+".tmp", chatFile())
+	sort.Slice(out, func(i, j int) bool { return sessKey(out[i].user) < sessKey(out[j].user) })
+	return out
 }
 
-// chatPrepare: campo "chat" da allegare al heartbeat (nil se la chat non è attiva su questo device).
+// chatPrepare: campo "chat" da allegare al heartbeat. «sessions» ha una voce per utente; con una sola conversazione si ripetono anche
+// ack/read/out al livello superiore, per un server precedente.
 func chatPrepare() map[string]any {
 	chatMu.Lock()
 	defer chatMu.Unlock()
-	chatLoad()
-	out := []map[string]string{}
-	for i := range chatLog {
-		e := chatLog[i]
-		if e.Dir == "user" && !e.Sent && e.CID != "" {
-			m := map[string]string{"cid": e.CID, "text": e.Text}
-			if e.Img != "" {
-				b, err := os.ReadFile(filepath.Join(chatImgDir(), filepath.Base(e.Img)))
-				if e.Tries >= 3 || err != nil { // il server non l'ha accettata (o il file manca): si rinuncia, senza bloccare gli altri messaggi
-					chatLog[i].Sent, chatLog[i].Failed = true, true
-					chatSaveLocked()
-					continue
+	list := []map[string]any{}
+	users := []string{}
+	anyTray, anyOpen := false, false
+	var one map[string]any
+	for _, s := range chatSessionsSorted() {
+		out := []map[string]string{}
+		for i := range s.log {
+			e := s.log[i]
+			if e.Dir == "user" && !e.Sent && e.CID != "" {
+				m := map[string]string{"cid": e.CID, "text": e.Text}
+				if e.Img != "" {
+					b, err := os.ReadFile(filepath.Join(chatImgDir(), filepath.Base(e.Img)))
+					if e.Tries >= 3 || err != nil { // il server non l'ha accettata (o il file manca): si rinuncia, senza bloccare gli altri messaggi
+						s.log[i].Sent, s.log[i].Failed = true, true
+						s.saveLocked()
+						continue
+					}
+					s.log[i].Tries++
+					m["img"], m["kind"] = base64.StdEncoding.EncodeToString(b), e.Kind
 				}
-				chatLog[i].Tries++
-				m["img"], m["kind"] = base64.StdEncoding.EncodeToString(b), e.Kind
+				if e.Ticket {
+					m["ticket"] = "1"
+					m["title"] = e.Title
+				}
+				out = append(out, m)
 			}
-			if e.Ticket {
-				m["ticket"] = "1"
-				m["title"] = e.Title
+		}
+		open := time.Since(s.open) < 20*time.Second
+		tray := time.Since(s.last) < 60*time.Second
+		anyTray, anyOpen = anyTray || tray, anyOpen || open
+		if tray && s.user != "" {
+			users = append(users, s.user)
+		}
+		it := map[string]any{"user": s.user, "ack": s.ack, "read": s.read, "out": out, "open": open}
+		list = append(list, it)
+		one = it
+	}
+	res := map[string]any{"sessions": list, "open": anyOpen, "tray": anyTray, "users": users}
+	if len(list) <= 1 {
+		if one == nil {
+			one = map[string]any{"ack": 0, "read": 0, "out": []map[string]string{}}
+		}
+		res["ack"], res["read"], res["out"] = one["ack"], one["read"], one["out"]
+	}
+	return res
+}
+
+// chatApply applica a una conversazione la parte di risposta che la riguarda. Chiamare con chatMu preso.
+func chatApply(s *chatSess, r *chatResp) {
+	changed := false
+	for _, m := range r.Msgs {
+		if m.ID <= s.ack {
+			continue
+		}
+		img := ""
+		if m.Img != "" && chatImgName.MatchString(m.Img) {
+			img = m.Img // scaricata subito dopo (chatFetchImgs) o alla prima richiesta della tray; il nome è privo di percorsi
+		}
+		s.log = append(s.log, chatEntry{Dir: "op", Author: m.Author, Text: m.Text, TS: m.TS, SrvID: m.ID, Img: img, Kind: m.Kind})
+		s.ack = m.ID
+		changed = true
+	}
+	for _, cid := range r.Ok {
+		for i := range s.log {
+			if s.log[i].CID == cid && !s.log[i].Sent {
+				s.log[i].Sent = true
+				changed = true
 			}
-			out = append(out, m)
 		}
 	}
-	return map[string]any{
-		"ack": chatAck, "read": chatRead, "out": out,
-		"open": time.Since(trayOpen) < 20*time.Second,
-		"tray": time.Since(trayLast) < 60*time.Second,
+	if changed {
+		s.saveLocked()
 	}
 }
 
@@ -259,65 +378,92 @@ func chatHandle(r *chatResp) {
 	if r == nil {
 		return
 	}
-	chatLoad()
-	changed := false
-	for _, m := range r.Msgs {
-		if m.ID <= chatAck {
-			continue
-		}
-		img := ""
-		if m.Img != "" && chatImgName.MatchString(m.Img) {
-			img = m.Img // scaricata subito dopo (chatFetchImgs); il nome è privo di percorsi
-		}
-		chatLog = append(chatLog, chatEntry{Dir: "op", Author: m.Author, Text: m.Text, TS: m.TS, SrvID: m.ID, Img: img, Kind: m.Kind})
-		chatAck = m.ID
-		changed = true
-	}
-	for _, cid := range r.Ok {
-		for i := range chatLog {
-			if chatLog[i].CID == cid && !chatLog[i].Sent {
-				chatLog[i].Sent = true
-				changed = true
+	if len(r.Sessions) > 0 {
+		for u, rr := range r.Sessions {
+			if rr != nil {
+				chatApply(chatSession(u), rr)
 			}
 		}
+		return
 	}
-	if changed {
-		chatSaveLocked()
+	if len(chatSessions) == 1 { // server precedente: una sola conversazione
+		for _, s := range chatSessions {
+			chatApply(s, r)
+		}
+	} else if len(chatSessions) == 0 && (len(r.Msgs) > 0 || len(r.Ok) > 0) {
+		chatApply(chatSession(""), r)
 	}
 }
 
 var chatFetching atomic.Bool
 
-// chatFetchImgs: scarica dal server le immagini inviate dall'assistenza e non ancora presenti sul disco (fuori dal lock).
+// chatFetchOne scarica dal server un'immagine dell'assistenza; registra il motivo dell'eventuale errore (lo vede la tray).
+func chatFetchOne(serverURL, key, n string) error {
+	if serverURL == "" || !chatImgName.MatchString(n) {
+		return fmt.Errorf("immagine non scaricabile")
+	}
+	req, err := http.NewRequest(http.MethodGet, serverURL+"?action=chat_img_dev&n="+n, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Device-Key", key)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		chatNoteImgErr(n, "rete: "+err.Error())
+		return err
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 6<<20))
+	resp.Body.Close()
+	switch {
+	case resp.StatusCode != http.StatusOK:
+		e := fmt.Errorf("il server risponde HTTP %d", resp.StatusCode)
+		chatNoteImgErr(n, e.Error())
+		return e
+	case chatImgType(b) == "":
+		e := fmt.Errorf("il server non ha restituito un'immagine (%d byte)", len(b))
+		chatNoteImgErr(n, e.Error())
+		return e
+	}
+	if err := os.MkdirAll(chatImgDir(), 0o700); err != nil {
+		chatNoteImgErr(n, err.Error())
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(chatImgDir(), n), b, 0o600); err != nil {
+		chatNoteImgErr(n, "scrittura: "+err.Error())
+		return err
+	}
+	chatMu.Lock()
+	delete(chatImgErr, n)
+	chatMu.Unlock()
+	return nil
+}
+
+func chatNoteImgErr(n, msg string) {
+	chatMu.Lock()
+	chatImgErr[n] = msg
+	chatMu.Unlock()
+}
+
+// chatFetchImgs: scarica le immagini dell'assistenza non ancora sul disco (fuori dal lock). Serve anche a mandarle in anticipo: se manca
+// qualcosa la tray la chiede comunque all'agent, che la scarica in quel momento.
 func chatFetchImgs(serverURL, key string) {
 	if !chatFetching.CompareAndSwap(false, true) {
 		return
 	}
 	defer chatFetching.Store(false)
 	chatMu.Lock()
-	chatLoad()
+	chatServer.URL, chatServer.Key = serverURL, key
 	var todo []string
-	for _, e := range chatLog {
-		if e.Dir == "op" && e.Img != "" && !chatImgExists(e.Img) {
-			todo = append(todo, e.Img)
+	for _, s := range chatSessions {
+		for _, e := range s.log {
+			if e.Dir == "op" && e.Img != "" && !chatImgExists(e.Img) {
+				todo = append(todo, e.Img)
+			}
 		}
 	}
 	chatMu.Unlock()
 	for _, n := range todo {
-		req, err := http.NewRequest(http.MethodGet, serverURL+"?action=chat_img_dev&n="+n, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("X-Device-Key", key)
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			continue
-		}
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 6<<20))
-		resp.Body.Close()
-		if resp.StatusCode == http.StatusOK && chatImgType(b) != "" && os.MkdirAll(chatImgDir(), 0o700) == nil {
-			_ = os.WriteFile(filepath.Join(chatImgDir(), n), b, 0o600)
-		}
+		_ = chatFetchOne(serverURL, key, n)
 	}
 	chatImgClean()
 }
@@ -338,71 +484,104 @@ func chatKick() {
 
 func chatHandler(cfg *Config) http.Handler {
 	mux := http.NewServeMux()
-	guard := func(h http.HandlerFunc) http.HandlerFunc {
+	guard := func(h func(w http.ResponseWriter, r *http.Request, user string)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			host, _, _ := net.SplitHostPort(r.Host)
-			if (host != "127.0.0.1" && host != "localhost") || r.Header.Get("X-Myrmm-Tray") != "1" {
+			key := r.Header.Get("X-Myrmm-Tray")
+			if host != "127.0.0.1" && host != "localhost" || key == "" {
 				http.Error(w, "forbidden", http.StatusForbidden) // blocca anche pagine web che tentano il DNS rebinding
+				return
+			}
+			user, ok := chatResolve(key)
+			if !ok {
+				http.Error(w, "forbidden", http.StatusForbidden) // chiave di sessione sconosciuta
 				return
 			}
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")
-			h(w, r)
+			h(w, r, user)
 		}
 	}
-	mux.HandleFunc("/state", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) { // senza chiave: solo per la diagnosi dell'agent, nessun dato delle conversazioni
+		host, _, _ := net.SplitHostPort(r.Host)
+		if host != "127.0.0.1" && host != "localhost" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		chatMu.Lock()
-		chatLoad()
-		trayLast = time.Now()
+		n, online := len(chatSessions), time.Since(hbOK) < 3*time.Minute
+		chatMu.Unlock()
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(map[string]any{"version": AgentVersion, "online": online, "users": n})
+	})
+	mux.HandleFunc("/state", guard(func(w http.ResponseWriter, r *http.Request, user string) {
+		if chatDisabled.Load() {
+			_, _ = w.Write([]byte(`{"disabled":true,"version":"` + AgentVersion + `"}`))
+			return
+		}
+		chatMu.Lock()
+		s := chatSession(user)
+		s.last = time.Now()
 		if r.URL.Query().Get("open") == "1" {
-			trayOpen = time.Now()
-			if n, _ := strconv.Atoi(r.URL.Query().Get("seen")); n > chatRead {
-				chatRead = n
-				chatSaveLocked()
+			s.open = time.Now()
+			if n, _ := strconv.Atoi(r.URL.Query().Get("seen")); n > s.read {
+				s.read = n
+				s.saveLocked()
 			}
 		}
-		log := make([]map[string]any, 0, len(chatLog))
-		for _, e := range chatLog {
+		log := make([]map[string]any, 0, len(s.log))
+		for _, e := range s.log {
 			m := map[string]any{"dir": e.Dir, "author": e.Author, "text": e.Text, "ts": e.TS, "srv_id": e.SrvID, "cid": e.CID, "sent": e.Sent, "ticket": e.Ticket, "kind": e.Kind, "failed": e.Failed}
 			if e.Img != "" {
-				m["img"], m["ready"] = e.Img, chatImgExists(e.Img)
+				// le immagini dell'assistenza sono sempre «pronte»: se non sono ancora sul disco /img le scarica in quel momento
+				m["img"], m["ready"] = e.Img, true
+				if er := chatImgErr[e.Img]; er != "" {
+					m["img_err"] = er
+				}
 			}
 			log = append(log, m)
 		}
-		rd, online, host, site := chatRead, time.Since(hbOK) < 3*time.Minute, chatMeta.Host, chatMeta.Site
+		rd, online, host, site := s.read, time.Since(hbOK) < 3*time.Minute, chatMeta.Host, chatMeta.Site
 		chatMu.Unlock()
 		if r.URL.Query().Get("open") == "1" {
 			trayFast.Store(time.Now().Add(30 * time.Second).UnixNano()) // finestra aperta: collegamento rapido
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"host": host, "site": site, "version": AgentVersion,
+			"host": host, "site": site, "version": AgentVersion, "user": user,
 			"online": online, "read": rd, "log": log,
 		})
 	}))
-	mux.HandleFunc("/img", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/img", guard(func(w http.ResponseWriter, r *http.Request, user string) {
 		n := r.URL.Query().Get("n")
 		known := false
 		chatMu.Lock()
-		chatLoad()
-		for _, e := range chatLog {
+		for _, e := range chatSession(user).log {
 			if n != "" && e.Img == n {
 				known = true
 			}
 		}
+		url, key := chatServer.URL, chatServer.Key
 		chatMu.Unlock()
-		var b []byte
-		if known && chatImgName.MatchString(n) {
-			b, _ = os.ReadFile(filepath.Join(chatImgDir(), filepath.Base(n)))
+		if !known || !chatImgName.MatchString(n) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
 		}
+		if !chatImgExists(n) { // non ancora scaricata: lo si fa ora e, se non va, si dice perché
+			if err := chatFetchOne(url, key, n); err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+		}
+		b, _ := os.ReadFile(filepath.Join(chatImgDir(), filepath.Base(n)))
 		ext := chatImgType(b)
 		if ext == "" {
-			http.Error(w, "not found", http.StatusNotFound)
+			http.Error(w, "il file non è un'immagine leggibile", http.StatusUnprocessableEntity)
 			return
 		}
 		w.Header().Set("Content-Type", map[string]string{"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}[ext])
 		_, _ = w.Write(b)
 	}))
-	mux.HandleFunc("/send", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/send", guard(func(w http.ResponseWriter, r *http.Request, user string) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST", http.StatusMethodNotAllowed)
 			return
@@ -454,13 +633,13 @@ func chatHandler(cfg *Config) http.Handler {
 			return
 		}
 		chatMu.Lock()
-		chatLoad()
+		s := chatSession(user)
 		title := strings.TrimSpace(in.Title)
 		if len([]rune(title)) > 140 {
 			title = string([]rune(title)[:140])
 		}
-		chatLog = append(chatLog, chatEntry{Dir: "user", Text: t, TS: time.Now().UTC().Format(time.RFC3339), CID: fmt.Sprintf("%d-%d", time.Now().UnixNano(), len(chatLog)), Ticket: in.Ticket, Title: title, Img: img, Kind: kind})
-		chatSaveLocked()
+		s.log = append(s.log, chatEntry{Dir: "user", Text: t, TS: time.Now().UTC().Format(time.RFC3339), CID: fmt.Sprintf("%d-%d", time.Now().UnixNano(), len(s.log)), Ticket: in.Ticket, Title: title, Img: img, Kind: kind})
+		s.saveLocked()
 		chatMu.Unlock()
 		trayFast.Store(time.Now().Add(30 * time.Second).UnixNano())
 		chatKick()
@@ -469,8 +648,10 @@ func chatHandler(cfg *Config) http.Handler {
 	return mux
 }
 
-// chatServe avvia l'API locale su una porta di loopback e ne scrive il numero in tray.json (leggibile dagli utenti).
-func chatServe(cfg *Config) {
+// chatServe avvia l'API locale su una porta di loopback e ne scrive il numero in tray.json (per la diagnosi: gli utenti non lo leggono,
+// la porta la passa il servizio alla tray). Ritorna la porta.
+func chatServe(cfg *Config) int {
+	chatLoadAll()
 	port := cfg.TrayPort
 	if port == 0 {
 		port = 47653
@@ -478,7 +659,7 @@ func chatServe(cfg *Config) {
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		if ln, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
-			return
+			return 0
 		}
 	}
 	port = ln.Addr().(*net.TCPAddr).Port
@@ -486,4 +667,5 @@ func chatServe(cfg *Config) {
 	_ = os.WriteFile(filepath.Join(dataDir(), "tray.json"), b, 0o644)
 	go chatImgClean()
 	go func() { _ = (&http.Server{Handler: chatHandler(cfg), ReadHeaderTimeout: 5 * time.Second}).Serve(ln) }()
+	return port
 }

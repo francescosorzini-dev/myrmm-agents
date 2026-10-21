@@ -22,15 +22,13 @@ H 'PowerShell e criteri'
 Get-ExecutionPolicy -List | Format-Table -AutoSize | Out-String -Width 200
 H 'Servizio myrmm-agent'
 Get-CimInstance Win32_Service -Filter "Name='myrmm-agent'" | Format-List Name,State,StartMode,StartName,PathName,ProcessId,ExitCode | Out-String -Width 200
-H 'Attivita pianificata myrmm-tray (icona e chat)'
-$t=Get-ScheduledTask -TaskName 'myrmm-tray'
-if($t){ $t | Format-List TaskName,State | Out-String; $i=$t|Get-ScheduledTaskInfo; "ultima esecuzione: $($i.LastRunTime)  esito: 0x{0:X}  prossima: $($i.NextRunTime)" -f $i.LastTaskResult
-  "azione: $($t.Actions.Execute) $($t.Actions.Arguments)"; "principal: $($t.Principal.GroupId)$($t.Principal.UserId) livello $($t.Principal.RunLevel)"; "trigger: $(($t.Triggers|%{$_.CimClass.CimClassName}) -join ', ')" } else { 'ATTIVITA NON TROVATA: l''agent non l''ha registrata (tray_mode=off, errore alla registrazione, o agent non aggiornato)' }
-H 'Avvio all''accesso (chiave Run di sistema)'
-(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).'myrmm-tray'
-H 'Processi icona (myrmm-tray.exe)'
-$p=Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'myrmm-tray.exe' -or $_.CommandLine -like '*tray.ps1*' }
-if($p){ $p | ForEach-Object { $o=Invoke-CimMethod -InputObject $_ -MethodName GetOwner; "pid $($_.ProcessId)  sessione $($_.SessionId)  utente $($o.Domain)\$($o.User)" } } else { 'nessun processo myrmm-tray in esecuzione (nessun utente collegato dopo la registrazione, o l''icona e'' terminata)' }
+H 'Tray (dalla 1.67 e un sottocomando dell agent, avviato dal servizio in ogni sessione)'
+$p=Get-CimInstance Win32_Process -Filter "Name='myrmm-agent.exe'" | Where-Object { $_.CommandLine -match ' tray$' }
+if($p){ $p | ForEach-Object { $o=Invoke-CimMethod -InputObject $_ -MethodName GetOwner; "pid $($_.ProcessId)  sessione $($_.SessionId)  utente $($o.Domain)\$($o.User)" } } else { 'nessun processo tray in esecuzione' }
+H 'Resti delle versioni precedenti (devono mancare)'
+"attivita pianificata myrmm-tray: $([bool](Get-ScheduledTask -TaskName 'myrmm-tray' -ErrorAction SilentlyContinue))"
+"chiave Run: $((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).'myrmm-tray')"
+"myrmm-tray.exe nella cartella dati: $(Test-Path (Join-Path $env:ProgramData 'myrmm\\myrmm-tray.exe'))"
 H 'Sessioni (quser)'
 quser 2>&1 | Out-String
 H 'Windows Forms disponibile'
@@ -48,8 +46,6 @@ H 'Sincronizzazione orologio'
 w32tm /query /status 2>&1 | Select-Object -First 8 | Out-String
 H 'Registro eventi: sorgente myrmm-agent (ultimi 30)'
 Get-WinEvent -FilterHashtable @{LogName='Application';ProviderName='myrmm-agent'} -MaxEvents 30 | ForEach-Object { "$($_.TimeCreated.ToString('s')) [$($_.LevelDisplayName)] $($_.Message -replace '\s+',' ')" }
-H 'Registro Utilita di pianificazione per myrmm-tray (ultimi 15)'
-Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TaskScheduler/Operational'} -MaxEvents 400 | Where-Object { $_.Message -like '*myrmm-tray*' } | Select-Object -First 15 | ForEach-Object { "$($_.TimeCreated.ToString('s')) id $($_.Id) $($_.Message -replace '\s+',' ')" }
 H 'Spazio su disco'
 Get-PSDrive -PSProvider FileSystem | Select-Object Name,@{n='libero_GB';e={[math]::Round($_.Free/1GB,1)}} | Format-Table -AutoSize | Out-String
 `

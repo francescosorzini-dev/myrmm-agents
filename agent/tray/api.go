@@ -1,4 +1,4 @@
-package main
+package tray
 
 // Parte senza interfaccia grafica della tray in Go: dialogo con l'agent locale (127.0.0.1, stesso protocollo della tray
 // PowerShell: /state, /send, /img) e preparazione del testo della conversazione. È provata su ogni sistema con i test.
@@ -29,24 +29,40 @@ type logEntry struct {
 	Failed bool   `json:"failed"`
 	Img    string `json:"img"`
 	Ready  bool   `json:"ready"`
+	ImgErr string `json:"img_err"`
 }
 
 type state struct {
-	Host    string     `json:"host"`
-	Site    string     `json:"site"`
-	Version string     `json:"version"`
-	Online  bool       `json:"online"`
-	Read    int        `json:"read"`
-	Log     []logEntry `json:"log"`
+	Host     string     `json:"host"`
+	Site     string     `json:"site"`
+	Version  string     `json:"version"`
+	Online   bool       `json:"online"`
+	User     string     `json:"user"`
+	Disabled bool       `json:"disabled"`
+	Read     int        `json:"read"`
+	Log      []logEntry `json:"log"`
+}
+
+// Options: come l'agent avvia la tray (nella sessione dell'utente, con il suo token). Base e Key arrivano dal servizio
+// (variabili d'ambiente MYRMM_TRAY_PORT e MYRMM_TRAY_KEY); Version è quella dell'agent che l'ha lanciata: se l'agent
+// cambia versione la tray esce e il servizio la rilancia dal nuovo eseguibile.
+type Options struct {
+	Base    string // http://127.0.0.1:porta dell'API locale dell'agent
+	Key     string // chiave della sessione: l'agent la verifica e sa di quale utente è la conversazione
+	Version string
+	Dir     string // solo per i test: cartella con tray.json, se Base è vuoto
 }
 
 type client struct {
 	base string // http://127.0.0.1:porta
+	key  string
 	http *http.Client
 }
 
-func newClient(base string) *client {
-	return &client{base: base, http: &http.Client{Timeout: 8 * time.Second}}
+func newClient(base string) *client { return newClientKey(base, "") }
+
+func newClientKey(base, key string) *client {
+	return &client{base: base, key: key, http: &http.Client{Timeout: 8 * time.Second}}
 }
 
 // baseFromDir legge la porta dell'API locale da tray.json (scritto dall'agent).
@@ -74,7 +90,11 @@ func (c *client) do(method, path string, body any, timeout time.Duration) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Myrmm-Tray", "1") // l'agent rifiuta chi non lo porta (pagine web ostile)
+	k := c.key
+	if k == "" {
+		k = "1"
+	}
+	req.Header.Set("X-Myrmm-Tray", k) // l'agent rifiuta chi non lo porta (pagine web ostile) e con la chiave sa di quale sessione si tratta
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	}
@@ -89,6 +109,9 @@ func (c *client) do(method, path string, body any, timeout time.Duration) ([]byt
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if resp.StatusCode != http.StatusOK {
+		if m := strings.TrimSpace(string(data)); m != "" && len(m) < 200 { // l'agent dice perché (es. immagine non scaricabile dal server)
+			return data, fmt.Errorf("agent: HTTP %d: %s", resp.StatusCode, m)
+		}
 		return data, fmt.Errorf("agent: HTTP %d", resp.StatusCode)
 	}
 	return data, nil

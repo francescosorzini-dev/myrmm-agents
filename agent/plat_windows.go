@@ -19,6 +19,9 @@ import (
 )
 
 func dataDir() string {
+	if d := os.Getenv("MYRMM_DIR"); d != "" { // prove e diagnostica: cartella dati alternativa
+		return d
+	}
 	if pd := os.Getenv("ProgramData"); pd != "" {
 		return filepath.Join(pd, "myrmm")
 	}
@@ -218,7 +221,7 @@ func platFullInventory() (map[string]any, error) {
 // uninstallScript: PowerShell che ferma e cancella il servizio, poi rimuove binario e dati (separato per poterlo verificare nei test).
 func uninstallScript(exe, data, trace string) string {
 	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
-	script := "$ErrorActionPreference='SilentlyContinue'; $lg=" + q(trace) + "; 'avvio '+(Get-Date -f s)+' pid '+$PID | Out-File -Append $lg; Unregister-ScheduledTask -TaskName 'myrmm-tray' -Confirm:$false; Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'myrmm-tray'; Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Where-Object {$_.CommandLine -like '*myrmm*tray.ps1*'} | ForEach-Object {Stop-Process -Id $_.ProcessId -Force}; Get-Process -Name 'myrmm-tray' | Stop-Process -Force; Start-Sleep 3; sc.exe stop myrmm-agent | Out-Null; Start-Sleep 4; sc.exe delete myrmm-agent | Out-Null; Start-Sleep 1;" +
+	script := "$ErrorActionPreference='SilentlyContinue'; $lg=" + q(trace) + "; 'avvio '+(Get-Date -f s)+' pid '+$PID | Out-File -Append $lg; Unregister-ScheduledTask -TaskName 'myrmm-tray' -Confirm:$false; Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'myrmm-tray'; Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Where-Object {$_.CommandLine -like '*myrmm*tray.ps1*'} | ForEach-Object {Stop-Process -Id $_.ProcessId -Force}; Get-Process -Name 'myrmm-tray' | Stop-Process -Force; Get-CimInstance Win32_Process -Filter \"Name='myrmm-agent.exe'\" | Where-Object {$_.CommandLine -match ' tray.?$'} | ForEach-Object {Stop-Process -Id $_.ProcessId -Force}; Start-Sleep 3; sc.exe stop myrmm-agent | Out-Null; Start-Sleep 4; sc.exe delete myrmm-agent | Out-Null; Start-Sleep 1;" +
 		"foreach($f in " + q(exe) + "," + q(exe+".new") + "," + q(exe+".old") + "){for($i=0;$i -lt 10 -and (Test-Path $f);$i++){Remove-Item -Force $f; if(Test-Path $f){Start-Sleep 2}}};"
 	leaf := strings.ToLower(filepath.Base(data))
 	if leaf == "myrmm" || leaf == "myrmm-agent" {

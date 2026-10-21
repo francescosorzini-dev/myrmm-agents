@@ -2,7 +2,7 @@
 
 // myrmm-tray: icona nella systray e finestra di chat con l'assistenza (Windows), senza PowerShell.
 // Parla solo con l'agent locale (127.0.0.1). Interfaccia con le API di Windows (user32/shell32/richedit), nessuna libreria grafica.
-package main
+package tray
 
 import (
 	"fmt"
@@ -242,6 +242,8 @@ var (
 	online       = -1
 	iconOK       bool
 	loggedNoBase bool
+	opts         Options
+	lastGood     = time.Now() // ultima risposta dell'agent: se tace per troppo tempo la tray esce
 	wmTaskbar    uintptr
 	visible      bool
 )
@@ -250,7 +252,9 @@ var (
 // principale può migrare tra un thread e l'altro e le SendMessage verso la propria finestra restano appese.
 func init() { runtime.LockOSThread() }
 
-func main() {
+// Main: icona nella systray e finestra di chat; parte dall'agent (sottocomando «tray») nella sessione dell'utente.
+func Main(o Options) {
+	opts = o
 	// stesso nome del mutex della tray PowerShell: le due non possono girare insieme
 	h, _, merr := pCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(u16(`Local\myrmm-tray`))))
 	if h == 0 || merr == windows.ERROR_ALREADY_EXISTS {
@@ -258,7 +262,10 @@ func main() {
 	}
 	openLog()
 	logf("avvio, exe=%s", os.Args[0])
-	dir := os.Getenv("MYRMM_DIR")
+	dir := o.Dir
+	if dir == "" {
+		dir = os.Getenv("MYRMM_DIR")
+	}
 	if dir == "" {
 		if exe, err := os.Executable(); err == nil {
 			dir = filepath.Dir(exe)
@@ -530,6 +537,10 @@ func messageBox(s string) {
 
 func poller(dir string) {
 	for {
+		if cl == nil && opts.Base != "" {
+			cl = newClientKey(opts.Base, opts.Key)
+			logf("API locale: %s (sessione con chiave)", opts.Base)
+		}
 		if cl == nil {
 			if b, err := baseFromDir(dir); err == nil {
 				cl = newClient(b)
@@ -564,13 +575,27 @@ func pollOnce() {
 			logf("/state: %v", err)
 		}
 		curErr = true
+		gone := time.Since(lastGood) > 75*time.Second
 		mu.Unlock()
+		if gone && opts.Base != "" { // servizio fermo da troppo: non resto a bloccare l'eseguibile (aggiornamenti) né a mostrare un'icona morta
+			logf("agent non raggiungibile da oltre un minuto: esco (il servizio mi rilancia quando torna)")
+			quitNow()
+		}
 		setOnline(false)
 		return
 	}
 	curErr = false
 	cur = st
+	lastGood = time.Now()
 	mu.Unlock()
+	if st.Disabled {
+		logf("l'icona è stata disattivata dalla console: esco")
+		quitNow()
+	}
+	if opts.Version != "" && st.Version != "" && st.Version != opts.Version {
+		logf("l'agent è passato alla versione %s (io sono la %s): esco, il servizio mi rilancia", st.Version, opts.Version)
+		quitNow()
+	}
 	pPostMessage.Call(uintptr(hMain), wmRefresh, 0, 0)
 }
 
@@ -668,6 +693,12 @@ func addIcon() {
 	r, _, e := pShellNotifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(&nd)))
 	iconOK = r != 0
 	logf("Shell_NotifyIcon(ADD) -> %d (%v)", r, e)
+}
+
+// quitNow: uscita dal thread del poller (toglie l'icona, altrimenti resterebbe fino al passaggio del mouse).
+func quitNow() {
+	removeIcon()
+	os.Exit(0)
 }
 
 func removeIcon() {

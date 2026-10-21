@@ -24,7 +24,9 @@ func chatTestReset(t *testing.T) {
 	d := t.TempDir()
 	t.Setenv("MYRMM_DIR", d)
 	chatMu.Lock()
-	chatLog, chatLoaded, chatAck, chatRead = nil, true, 0, 0
+	chatSessions = map[string]*chatSess{}
+	chatImgErr = map[string]string{}
+	chatServer.URL, chatServer.Key = "", ""
 	chatMu.Unlock()
 }
 
@@ -112,11 +114,11 @@ func TestChatSendImageAndServe(t *testing.T) {
 		t.Fatalf("troppo grande: atteso 413, %d", w.Code)
 	}
 	chatMu.Lock()
-	if len(chatLog) != 1 || chatLog[0].Img == "" || chatLog[0].Kind != "shot" || !strings.HasSuffix(chatLog[0].Img, ".jpg") {
+	if len(chatSession("").log) != 1 || chatSession("").log[0].Img == "" || chatSession("").log[0].Kind != "shot" || !strings.HasSuffix(chatSession("").log[0].Img, ".jpg") {
 		chatMu.Unlock()
-		t.Fatalf("log inatteso: %+v", chatLog)
+		t.Fatalf("log inatteso: %+v", chatSession("").log)
 	}
-	name := chatLog[0].Img
+	name := chatSession("").log[0].Img
 	chatMu.Unlock()
 	// /state espone img e ready
 	w := chatReq(t, h, "GET", "/state", nil)
@@ -148,7 +150,7 @@ func TestChatPrepareCarriesImageAndGivesUp(t *testing.T) {
 	chatTestReset(t)
 	n, _ := chatImgStore(tinyPNG)
 	chatMu.Lock()
-	chatLog = []chatEntry{{Dir: "user", CID: "c1", Img: n, Kind: "shot", TS: time.Now().UTC().Format(time.RFC3339)}}
+	chatSession("").log = []chatEntry{{Dir: "user", CID: "c1", Img: n, Kind: "shot", TS: time.Now().UTC().Format(time.RFC3339)}}
 	chatMu.Unlock()
 	for i := 0; i < 3; i++ {
 		out := chatPrepare()["out"].([]map[string]string)
@@ -162,8 +164,8 @@ func TestChatPrepareCarriesImageAndGivesUp(t *testing.T) {
 	}
 	chatMu.Lock()
 	defer chatMu.Unlock()
-	if !chatLog[0].Failed || !chatLog[0].Sent {
-		t.Fatalf("da segnare come non inviata: %+v", chatLog[0])
+	if !chatSession("").log[0].Failed || !chatSession("").log[0].Sent {
+		t.Fatalf("da segnare come non inviata: %+v", chatSession("").log[0])
 	}
 }
 
@@ -188,8 +190,8 @@ func TestChatHandleOpImageNameValidated(t *testing.T) {
 	chatHandle(r)
 	chatMu.Lock()
 	defer chatMu.Unlock()
-	if len(chatLog) != 2 || chatLog[0].Img != "ci0123456789abcdef.png" || chatLog[1].Img != "" {
-		t.Fatalf("log: %+v", chatLog)
+	if len(chatSession("").log) != 2 || chatSession("").log[0].Img != "ci0123456789abcdef.png" || chatSession("").log[1].Img != "" {
+		t.Fatalf("log: %+v", chatSession("").log)
 	}
 }
 
@@ -202,7 +204,7 @@ func TestChatImgCleanRemovesOrphansAndOld(t *testing.T) {
 		_ = os.Chtimes(filepath.Join(chatImgDir(), n), old, old)
 	}
 	chatMu.Lock()
-	chatLog = []chatEntry{{Dir: "user", CID: "k", Img: keep, TS: time.Now().UTC().Format(time.RFC3339)}}
+	chatSession("").log = []chatEntry{{Dir: "user", CID: "k", Img: keep, TS: time.Now().UTC().Format(time.RFC3339)}}
 	chatMu.Unlock()
 	chatImgClean()
 	if !chatImgExists(keep) || chatImgExists(orph) {
@@ -210,13 +212,13 @@ func TestChatImgCleanRemovesOrphansAndOld(t *testing.T) {
 	}
 	// più vecchia di 30 giorni: il file sparisce e la riga perde il riferimento
 	chatMu.Lock()
-	chatLog[0].TS = time.Now().Add(-31 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	chatSession("").log[0].TS = time.Now().Add(-31 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	chatMu.Unlock()
 	chatImgClean()
 	chatMu.Lock()
 	defer chatMu.Unlock()
-	if chatImgExists(keep) || chatLog[0].Img != "" {
-		t.Fatalf("doveva essere eliminata: %+v", chatLog[0])
+	if chatImgExists(keep) || chatSession("").log[0].Img != "" {
+		t.Fatalf("doveva essere eliminata: %+v", chatSession("").log[0])
 	}
 }
 
@@ -241,5 +243,162 @@ func TestChatImgNormalizeResizesBigScreens(t *testing.T) {
 	}
 	if _, ok := chatImgNormalize([]byte("\x89PNG\r\n\x1a\nrotto")); ok {
 		t.Fatal("un PNG corrotto non deve passare")
+	}
+}
+
+// ---- conversazioni per utente (1.67.0) ----
+
+func TestChatSessionsPerUserAreSeparate(t *testing.T) {
+	chatTestReset(t)
+	chatResolve = func(k string) (string, bool) {
+		switch k {
+		case "ka":
+			return `PC\anna`, true
+		case "kb":
+			return `PC\bruno`, true
+		}
+		return "", false
+	}
+	defer func() { chatResolve = func(k string) (string, bool) { return "", k == "1" } }()
+	h := chatHandler(&Config{})
+	send := func(key, text string) int {
+		b, _ := json.Marshal(map[string]any{"text": text})
+		r := httptest.NewRequest("POST", "http://127.0.0.1:1/send", bytes.NewReader(b))
+		r.Header.Set("X-Myrmm-Tray", key)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	if send("ka", "ciao da Anna") != 200 || send("kb", "ciao da Bruno") != 200 || send("kb", "e ancora Bruno") != 200 {
+		t.Fatal("invio")
+	}
+	if send("kx", "intruso") != http.StatusForbidden {
+		t.Fatal("chiave sconosciuta: atteso 403")
+	}
+	chatMu.Lock()
+	a, b := len(chatSession(`PC\anna`).log), len(chatSession(`PC\bruno`).log)
+	chatMu.Unlock()
+	if a != 1 || b != 2 {
+		t.Fatalf("anna=%d bruno=%d", a, b)
+	}
+	p := chatPrepare()
+	ss := p["sessions"].([]map[string]any)
+	if len(ss) != 2 || ss[0]["user"] != `PC\anna` || ss[1]["user"] != `PC\bruno` || len(ss[1]["out"].([]map[string]string)) != 2 {
+		t.Fatalf("sessions: %+v", ss)
+	}
+	if _, legacy := p["out"]; legacy {
+		t.Fatal("con due utenti non si ripetono i campi del server precedente")
+	}
+	// i file sono separati e si rileggono all'avvio
+	chatSessions = map[string]*chatSess{}
+	chatLoadAll()
+	chatMu.Lock()
+	n := len(chatSessions)
+	b2 := len(chatSession(`pc\BRUNO`).log) // il nome utente non distingue maiuscole
+	chatMu.Unlock()
+	if n != 2 || b2 != 2 {
+		t.Fatalf("rilettura: %d sessioni, bruno=%d", n, b2)
+	}
+}
+
+func TestChatHandleRoutesBySession(t *testing.T) {
+	chatTestReset(t)
+	chatMu.Lock()
+	chatSession(`PC\anna`)
+	chatSession(`PC\bruno`)
+	chatMu.Unlock()
+	mk := func(id int, tx string) chatMsg {
+		return chatMsg{ID: id, Author: "Op", Text: tx, TS: "2026-01-01T00:00:00Z"}
+	}
+	chatHandle(&chatResp{Sessions: map[string]*chatResp{
+		`PC\anna`:  {Msgs: []chatMsg{mk(5, "per Anna")}},
+		`PC\bruno`: {Msgs: []chatMsg{mk(5, "per Bruno"), mk(6, "ancora")}},
+	}})
+	chatMu.Lock()
+	defer chatMu.Unlock()
+	a, b := chatSession(`PC\anna`), chatSession(`PC\bruno`)
+	if len(a.log) != 1 || a.log[0].Text != "per Anna" || a.ack != 5 || len(b.log) != 2 || b.ack != 6 {
+		t.Fatalf("anna=%+v bruno=%+v", a.log, b.log)
+	}
+}
+
+func TestChatLegacyFileAdoptedByFirstUser(t *testing.T) {
+	chatTestReset(t)
+	_ = os.WriteFile(chatSessFile(""), []byte(`{"Ack":7,"Read":3,"Log":[{"dir":"op","text":"vecchio","ts":"2026-01-01T00:00:00Z","srv_id":7}]}`), 0o600)
+	chatMu.Lock()
+	s := chatSession(`PC\anna`)
+	got := len(s.log) == 1 && s.ack == 7 && s.read == 3
+	other := chatSession(`PC\bruno`)
+	empty := len(other.log) == 0
+	chatMu.Unlock()
+	if !got || !empty {
+		t.Fatal("la conversazione della versione precedente va al primo utente, non al secondo")
+	}
+	if _, err := os.Stat(chatSessFile("") + ".old"); err != nil {
+		t.Fatal("il file vecchio andava rinominato")
+	}
+}
+
+func TestChatImgFetchOnDemandAndReason(t *testing.T) {
+	chatTestReset(t)
+	n := "ci0123456789abcdef0123456789abcdef"
+	ok := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Device-Key") != "K" || r.URL.Query().Get("n") != n {
+			http.Error(w, "no", 403)
+			return
+		}
+		if !ok {
+			http.Error(w, "non trovata", 404)
+			return
+		}
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+	chatMu.Lock()
+	chatSession("").log = []chatEntry{{Dir: "op", SrvID: 1, Img: n, TS: time.Now().UTC().Format(time.RFC3339)}}
+	chatServer.URL, chatServer.Key = srv.URL, "K"
+	chatMu.Unlock()
+	h := chatHandler(&Config{})
+	// 1) il server rifiuta: la tray riceve 502 con il motivo, /state lo riporta
+	ok = false
+	w := chatReq(t, h, "GET", "/img?n="+n, nil)
+	if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "404") {
+		t.Fatalf("atteso 502 con il motivo: %d %s", w.Code, w.Body.String())
+	}
+	st := chatReq(t, h, "GET", "/state", nil).Body.String()
+	if !strings.Contains(st, `"img_err"`) || !strings.Contains(st, `"ready":true`) {
+		t.Fatalf("state senza motivo: %s", st)
+	}
+	// 2) il server risponde: l'immagine si scarica nel momento della richiesta e l'errore sparisce
+	ok = true
+	w = chatReq(t, h, "GET", "/img?n="+n, nil)
+	if w.Code != 200 || chatImgType(w.Body.Bytes()) != "png" || !chatImgExists(n) {
+		t.Fatalf("scaricamento su richiesta: %d", w.Code)
+	}
+	if strings.Contains(chatReq(t, h, "GET", "/state", nil).Body.String(), `"img_err"`) {
+		t.Fatal("l'errore doveva sparire")
+	}
+}
+
+func TestChatDisabledStateAndPing(t *testing.T) {
+	chatTestReset(t)
+	h := chatHandler(&Config{})
+	chatDisabled.Store(true)
+	defer chatDisabled.Store(false)
+	if b := chatReq(t, h, "GET", "/state", nil).Body.String(); !strings.Contains(b, `"disabled":true`) {
+		t.Fatalf("state: %s", b)
+	}
+	r := httptest.NewRequest("GET", "http://127.0.0.1:1/ping", nil) // senza chiave: solo versione e conteggio
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), AgentVersion) {
+		t.Fatalf("ping: %d %s", w.Code, w.Body.String())
+	}
+	r = httptest.NewRequest("GET", "http://evil.example/ping", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("ping da host non locale: %d", w.Code)
 	}
 }

@@ -1,13 +1,6 @@
 //go:build !windows
 
-package main
+package tray
 
-import (
-	"fmt"
-	"os"
-)
-
-func main() {
-	fmt.Fprintln(os.Stderr, "myrmm-tray esiste solo per Windows")
-	os.Exit(1)
-}
+// Main: la tray esiste solo per Windows.
+func Main(o Options) {}

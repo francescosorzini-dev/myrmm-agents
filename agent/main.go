@@ -42,7 +42,7 @@ import (
 	"github.com/kardianos/service"
 )
 
-const AgentVersion = "1.66.1"
+const AgentVersion = "1.67.0"
 
 // ---- config / stato -------------------------------------------------------
 
@@ -607,6 +607,9 @@ func tick(cfg *Config, st State, log service.Logger) {
 	if trayOn(cfg) {
 		in["chat"] = chatPrepare()
 	}
+	if m := trayLocalPending(); m != "" {
+		in["tray_local"] = m // scelta fatta sul PC con tray-config: il server la adotta
+	}
 	if pv := probeVer(); pv != "" {
 		in["probe_ver"] = pv
 		if pk := probePubB64(); pk != "" {
@@ -782,7 +785,7 @@ func (p *program) run() {
 	}
 	_ = p.log.Infof("agent %s avviato, device #%d, poll %ds", AgentVersion, st.DeviceID, cfg.PollSeconds)
 	go tunnelAutoRegister(cfg.ServerURL, p.log) // il «un clic» del tunnel funziona da solo su questo PC
-	go trayStart(cfg, p.log)                    // installazione dell'icona: mai sul percorso di avvio dell'agent
+	go trayStart(cfg, st, p.log)                // supervisore delle tray nelle sessioni: mai sul percorso di avvio dell'agent
 
 	tick(cfg, st, p.log) // primo giro subito
 	for {
@@ -856,6 +859,14 @@ func (p *program) Stop(s service.Service) error {
 }
 
 func main() {
+	if len(os.Args) > 1 { // modi che non toccano il servizio: partono subito
+		switch os.Args[1] {
+		case "tray": // l'icona nella systray, lanciata dal servizio nella sessione dell'utente
+			os.Exit(trayMain())
+		case "tray-config": // mostra/nasconde l'icona su questo PC (amministratore)
+			os.Exit(trayConfigMain(os.Args[2:]))
+		}
+	}
 	svcConfig := &service.Config{
 		Name:        "myrmm-agent",
 		DisplayName: "myrmm agent",
