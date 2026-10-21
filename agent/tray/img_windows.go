@@ -571,6 +571,22 @@ func insertThumb(name string, t *thumbT) {
 	pSendMessage.Call(uintptr(hRich), emSetReadOnly, 1, 0)
 	l1, _, _ := pSendMessage.Call(uintptr(hRich), wmGetTextLength, 0, 0)
 	logf("miniatura: streamin=%d, testo %d -> %d, errore=%d", n, l0, l1, es.Err)
+	{ // c'è un carattere oggetto (U+FFFC)? Serve per capire se RichEdit ha creato l'immagine
+		type getTextEx struct {
+			cb, flags, codepage uint32
+			def, used           uintptr
+		}
+		buf := make([]uint16, l1+8)
+		g := getTextEx{cb: uint32(len(buf) * 2), codepage: 1200}
+		pSendMessage.Call(uintptr(hRich), 0x045E, uintptr(unsafe.Pointer(&g)), uintptr(unsafe.Pointer(&buf[0])))
+		obj := 0
+		for _, ch := range buf {
+			if ch == 0xFFFC {
+				obj++
+			}
+		}
+		logf("miniatura: caratteri oggetto nel testo = %d", obj)
+	}
 	var c, d int32
 	pSendMessage.Call(uintptr(hRich), emGetSel, uintptr(unsafe.Pointer(&c)), uintptr(unsafe.Pointer(&d)))
 	imgSpans = append(imgSpans, imgSpan{from: int(a), to: int(d), name: name})
