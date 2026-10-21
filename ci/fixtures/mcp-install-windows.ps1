@@ -57,4 +57,5 @@ $ErrorActionPreference = 'Stop'
 Write-Output $chk
 if ($rc -ne 0) { Write-Output 'ATTENZIONE: file installati ma la verifica del token è fallita.'; exit 5 }
 Write-Output "Installato in $dir. Configurazione leggibile solo da Amministratori e SYSTEM."
-Write-Output "Registrazione (da prompt di un amministratore): claude mcp add myrmm -- `"$exe`""
+Write-Output "Claude Desktop: esegui «myrmm MCP: collega Claude Desktop (Windows)» (configura l'utente del PC senza altri passaggi)."
+Write-Output "Claude Code (da prompt di un amministratore): claude mcp add myrmm -- `"$exe`""

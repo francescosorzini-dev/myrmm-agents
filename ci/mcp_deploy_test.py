@@ -48,7 +48,7 @@ try:
     sid = {r[1]: r[0] for r in q("SELECT id,name FROM scripts")}
     os.environ["MYRMM_DIR"] = adir
     rows = {r[0]: r for r in q("SELECT name, body, platform, description FROM scripts WHERE name LIKE 'myrmm MCP:%'")}
-    rec("5 script di libreria MCP presenti", len(rows) == 5, list(rows))
+    rec("5 script di libreria MCP presenti", len(rows) == 6, list(rows))
     L = rows["myrmm MCP: installa su Linux"][1]; M = rows["myrmm MCP: installa su macOS"][1]; W = rows["myrmm MCP: installa su Windows"][1]
     rec("piattaforme: Windows=windows, Linux/macOS=unix", rows["myrmm MCP: installa su Windows"][2] == "windows" and rows["myrmm MCP: installa su Linux"][2] == "unix" and rows["myrmm MCP: installa su macOS"][2] == "unix")
     rec("le variabili sono documentate (MCP_TOKEN obbligatoria)", all("@var MCP_TOKEN (obbligatoria)" in b for b in (L, M, W)) and "@var MCP_USER" in L)

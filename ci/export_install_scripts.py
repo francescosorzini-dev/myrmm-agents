@@ -6,7 +6,7 @@ import os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = open(os.path.join(ROOT, "server", "index.php"), encoding="utf-8").read()
 OUT = os.path.join(ROOT, "ci", "fixtures")
-FILES = {"mcpWin": "mcp-install-windows.ps1", "mcpRmWin": "mcp-remove-windows.ps1"}
+FILES = {"mcpWin": "mcp-install-windows.ps1", "mcpRmWin": "mcp-remove-windows.ps1", "mcpDesktopWin": "mcp-desktop-windows.ps1"}
 bad = 0
 for var, name in FILES.items():
     m = re.search(r"\$%s = <<<'PS'\n(.*?)\nPS;" % var, SRC, re.S)

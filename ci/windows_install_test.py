@@ -60,6 +60,30 @@ try:
     r = subprocess.run([INST, "--version"], capture_output=True, text=True); rec("l'eseguibile parte: --version", r.returncode == 0 and r.stdout.startswith("myrmm-mcp "), r.stdout + r.stderr)
     r = subprocess.run([INST, "--check"], capture_output=True, text=True, encoding="utf-8", errors="replace"); rec("--check con la configurazione scritta dallo script", r.returncode == 0 and "Collegamento verificato" in r.stdout, r.stdout + r.stderr)
 
+    print("== Claude Desktop")
+    me = run("$env:USERNAME")[1].strip(); appdata = run("$env:APPDATA")[1].strip()
+    dcfg = os.path.join(appdata, "Claude", "claude_desktop_config.json")
+    DESK = lambda vals=None: run(mat("mcp-desktop-windows.ps1", dict({"MCP_USER": me}, **(vals or {}))))
+    os.makedirs(os.path.dirname(dcfg), exist_ok=True)
+    open(dcfg, "w", encoding="utf-8").write(json.dumps({"theme": "dark", "mcpServers": {"altro": {"command": "x", "args": ["1"]}}}))
+    rc, out = DESK()
+    rec("Claude Desktop: esito 0 e file configurato", rc == 0 and "Configurato:" in out, "rc=%s\n%s" % (rc, out))
+    dj = json.loads(open(dcfg, "rb").read() or b"{}") if os.path.isfile(dcfg) else {}
+    rec("Claude Desktop: il resto della configurazione resta (tema e altro server)", dj.get("theme") == "dark" and dj.get("mcpServers", {}).get("altro", {}).get("command") == "x", dj)
+    rec("Claude Desktop: voce myrmm con l'eseguibile installato e senza token", dj.get("mcpServers", {}).get("myrmm", {}).get("command", "").lower() == INST.lower() and TOK not in open(dcfg, encoding="utf-8").read(), dj)
+    rec("Claude Desktop: copia di sicurezza .myrmm.bak", os.path.isfile(dcfg + ".myrmm.bak"))
+    rc, out = run("(icacls.exe '%s')" % CFG)
+    rec("Claude Desktop: l'utente può leggere la configurazione del server MCP", me.lower() in out.lower() or "(R)" in out, out)
+    r = subprocess.run([INST, "--check"], capture_output=True, text=True, encoding="utf-8", errors="replace"); rec("Claude Desktop: il server MCP funziona ancora dopo il cambio di permessi", r.returncode == 0, r.stdout + r.stderr)
+    rc, out = DESK(); dj2 = json.loads(open(dcfg, "rb").read()); rec("Claude Desktop: ripetibile (stesso risultato)", rc == 0 and dj2 == dj, "rc=%s %s" % (rc, out))
+    open(dcfg, "w", encoding="utf-8").write("{ non json")
+    rc, out = DESK(); rec("Claude Desktop: JSON non valido: esito 7 e file intatto", rc == 7 and open(dcfg, encoding="utf-8").read() == "{ non json", "rc=%s\n%s" % (rc, out))
+    rc, out = DESK({"MCP_USER": "nessuno_xyz"}); rec("Claude Desktop: utente inesistente: esito 2", rc == 2, "rc=%s\n%s" % (rc, out))
+    rc, out = DESK({"MCP_USER": "a'; calc; '"}); rec("Claude Desktop: utente con apici: esito 2", rc == 2, "rc=%s\n%s" % (rc, out))
+    for f in (dcfg, dcfg + ".myrmm.bak"):
+        try: os.remove(f)
+        except OSError: pass
+
     print("== sostituzione con l'eseguibile in uso")
     p = subprocess.Popen([INST], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE); time.sleep(1.5)
     rec("l'assistente è in esecuzione", p.poll() is None, p.poll())
@@ -84,6 +108,7 @@ try:
     print("== rimozione")
     rc, out = run(mat("mcp-remove-windows.ps1", {}))
     rec("rimozione: esito 0, cartella e token spariti", rc == 0 and "Rimosso" in out and not os.path.exists(DIR), "rc=%s\n%s" % (rc, out))
+    rc, out = DESK(); rec("Claude Desktop senza server MCP installato: esito 6", rc == 6 and "installa su Windows" in out, "rc=%s\n%s" % (rc, out))
     rc, out = run(mat("mcp-remove-windows.ps1", {}))
     rec("seconda rimozione: «Non era installato.»", rc == 0 and "Non era installato." in out, out)
 finally:
