@@ -126,3 +126,5 @@ jobs:
         run: go build -trimpath -ldflags "-s -w" -o "$RUNNER_TEMP/myrmm-mcp.exe" .
       - name: Installa, sostituisce, rifiuta e rimuove (script di libreria, server finto)
         run: python ci/windows_install_test.py "$RUNNER_TEMP/myrmm-mcp.exe"
+      - name: Download compresso dell'agent (frammento dello script di installazione)
+        run: python ci/gz_fetch_test.py

@@ -1,4 +1,4 @@
-# myrmm v1.66.0 — manuale
+# myrmm v1.66.1 — manuale
 
 RMM (Remote Monitoring & Management) leggero per gestire flotte di PC e server di più clienti, pensato per
 girare su un **hosting condiviso Apache/PHP con SQLite**: nessun processo sempre attivo, nessun cron,
@@ -1109,6 +1109,7 @@ dist/                        binari di tutte le piattaforme (prodotti da release
 
 ## 17. Cronologia
 
+- **1.66.1** — lo script di installazione Windows scarica l'agent **compresso** (`install_bin&gz=1`, circa metà dei byte, in cache sul server): stesso binario, stesso controllo SHA-256 dopo la decompressione. Test: `ci/install_gz_test.py` (server di prova) e `ci/gz_fetch_test.py` (Windows PowerShell 5.1 vero, nel repository pubblico).
 - **1.66.0** — **etichette QR anche per i device** (stampa di massa dall'elenco, stesso formato degli asset) con **codice permanente** che non cambia mai; il QR apre la scheda dell'RMM (login richiesto); **ticket legati anche agli asset** (colonna e filtro, riquadro Ticket con apertura rapida su device e asset).
 - **1.65.3** — script di libreria **«myrmm MCP: collega Claude Desktop (Windows)»**: configura Claude Desktop di un utente per usare il server MCP (senza perdere la sua configurazione e senza il token nel profilo); il messaggio finale dell'installazione lo indica.
 - **1.65.2** — tray: **«Allega immagine»** funziona (la finestra di scelta del file andava in panico per il filtro), anteprime che non si riescono a leggere diventano un collegamento «[immagine: clic qui per aprirla]» (si apre col programma di Windows) e il log dice il perché; **avvio all'accesso più sicuro** (chiave Run di sistema oltre all'attività pianificata).
