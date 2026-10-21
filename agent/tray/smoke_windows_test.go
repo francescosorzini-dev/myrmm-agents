@@ -112,8 +112,8 @@ func TestTraySmoke(t *testing.T) {
 	rich, _, _ := user32.NewProc("FindWindowExW").Call(h, 0, uintptr(unsafe.Pointer(u16("RICHEDIT50W"))), 0)
 	if rich == 0 {
 		t.Error("controllo RichEdit non trovato")
-	} else if n, w, hh := capturedBlue(rich); n < 5000 {
-		t.Errorf("miniatura non disegnata: %d pixel dell'immagine su un controllo %dx%d", n, w, hh)
+	} else if n, w, hh, nw := capturedStats(rich); n < 5000 {
+		t.Errorf("miniatura non disegnata: %d pixel dell'immagine su un controllo %dx%d (pixel non bianchi: %d)", n, w, hh, nw)
 	} else {
 		t.Logf("miniatura disegnata: %d pixel", n)
 	}
@@ -135,6 +135,12 @@ func TestTraySmoke(t *testing.T) {
 
 // capturedBlue: PrintWindow del controllo in un bitmap a 32 bit; conta i pixel con blu = 128 (colore dell'immagine di prova).
 func capturedBlue(hwnd uintptr) (n, w, h int) {
+	n, w, h, _ = capturedStats(hwnd)
+	return
+}
+
+// capturedStats: oltre ai pixel blu = 128 restituisce quanti pixel non sono bianchi (per capire se la cattura funziona).
+func capturedStats(hwnd uintptr) (n, w, h, nonWhite int) {
 	var rc struct{ L, T, R, B int32 }
 	user32.NewProc("GetClientRect").Call(hwnd, uintptr(unsafe.Pointer(&rc)))
 	w, h = int(rc.R), int(rc.B)
@@ -160,6 +166,9 @@ func capturedBlue(hwnd uintptr) (n, w, h int) {
 	for i := 0; i+3 < len(px); i += 4 {
 		if px[i] == 128 { // blu (BGRA)
 			n++
+		}
+		if px[i] != 255 || px[i+1] != 255 || px[i+2] != 255 {
+			nonWhite++
 		}
 	}
 	gdi.NewProc("DeleteObject").Call(bmp)
