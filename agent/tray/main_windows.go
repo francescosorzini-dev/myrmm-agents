@@ -319,6 +319,7 @@ func buildControls(inst uintptr) {
 		return windows.HWND(h)
 	}
 	hRich = mk("RICHEDIT50W", "", wsVScroll|esMultiline|esReadOnly|esAutoVScroll|wsBorder, idRich)
+	setOleCallback(uintptr(hRich))
 	pSendMessage.Call(uintptr(hRich), emSetBkColor, 0, 0xffffff)
 	hTicket = mk("BUTTON", "Apri una richiesta di assistenza (ticket)", bsAutoCheck|wsTabstop, idTicket)
 	hSubject = mk("EDIT", "", wsBorder|esAutoHScroll|wsTabstop, idSubject)

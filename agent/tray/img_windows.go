@@ -658,3 +658,56 @@ func askShot(id int) {
 }
 
 var _ = strings.TrimSpace
+
+// ---- IRichEditOleCallback ---------------------------------------------------------------------
+// RichEdit crea le immagini come oggetti OLE e per farlo chiede al programma ospite un'area di memorizzazione (GetNewStorage).
+// Senza questa interfaccia scarta l'immagine in silenzio (resta solo il ritorno a capo): è il motivo delle miniature che non comparivano.
+
+const (
+	sOK         = 0
+	eNotImpl    = 0x80004001
+	eNoIface    = 0x80004002
+	emSetOleCbk = 0x0446
+)
+
+type oleCallbackObj struct{ vtbl *[13]uintptr }
+
+var (
+	oleCbVtbl  [13]uintptr
+	oleCbObj   = oleCallbackObj{vtbl: &oleCbVtbl}
+	pStgCreate = windows.NewLazySystemDLL("ole32.dll").NewProc("StgCreateDocfile")
+)
+
+func setOleCallback(hwnd uintptr) {
+	ok := func(f func(a ...uintptr) uintptr) uintptr {
+		return syscall.NewCallback(func(a, b, c, d, e, f2 uintptr) uintptr { return f(a, b, c, d, e, f2) })
+	}
+	ret := func(v uintptr) uintptr { return ok(func(a ...uintptr) uintptr { return v }) }
+	oleCbVtbl[0] = syscall.NewCallback(func(this, riid, ppv uintptr) uintptr { // QueryInterface: IUnknown o IRichEditOleCallback
+		defer guard("ole QI")
+		if ppv == 0 {
+			return eNoIface
+		}
+		*(*uintptr)(ptr(ppv)) = this
+		return sOK
+	})
+	oleCbVtbl[1] = ret(1)                                               // AddRef
+	oleCbVtbl[2] = ret(1)                                               // Release
+	oleCbVtbl[3] = syscall.NewCallback(func(this, pp uintptr) uintptr { // GetNewStorage: archivio strutturato in memoria
+		defer guard("ole storage")
+		// STGM_READWRITE | STGM_SHARE_EXCLUSIVE | STGM_CREATE | STGM_DELETEONRELEASE
+		r, _, _ := pStgCreate.Call(0, 0x2|0x10|0x1000|0x04000000, 0, pp)
+		return r
+	})
+	oleCbVtbl[4] = ret(eNotImpl)  // GetInPlaceContext
+	oleCbVtbl[5] = ret(sOK)       // ShowContainerUI
+	oleCbVtbl[6] = ret(sOK)       // QueryInsertObject
+	oleCbVtbl[7] = ret(sOK)       // DeleteObject
+	oleCbVtbl[8] = ret(sOK)       // QueryAcceptData
+	oleCbVtbl[9] = ret(sOK)       // ContextSensitiveHelp
+	oleCbVtbl[10] = ret(eNotImpl) // GetClipboardData
+	oleCbVtbl[11] = ret(eNotImpl) // GetDragDropEffect
+	oleCbVtbl[12] = ret(eNotImpl) // GetContextMenu
+	r, _, _ := pSendMessage.Call(hwnd, emSetOleCbk, 0, uintptr(unsafe.Pointer(&oleCbObj)))
+	logf("OLE callback impostata: %d", r)
+}
