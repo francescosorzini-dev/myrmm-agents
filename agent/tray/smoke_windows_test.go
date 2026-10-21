@@ -112,8 +112,8 @@ func TestTraySmoke(t *testing.T) {
 	rich, _, _ := user32.NewProc("FindWindowExW").Call(h, 0, uintptr(unsafe.Pointer(u16("RICHEDIT50W"))), 0)
 	if rich == 0 {
 		t.Error("controllo RichEdit non trovato")
-	} else if n, w, hh, nw := capturedStats(rich); n < 5000 {
-		t.Errorf("miniatura non disegnata: %d pixel dell'immagine su un controllo %dx%d (pixel non bianchi: %d)", n, w, hh, nw)
+	} else if n, w, hh, info := capturedStats(rich); n < 5000 {
+		t.Errorf("miniatura non disegnata: %d pixel dell'immagine su un controllo %dx%d:%s", n, w, hh, info)
 	} else {
 		t.Logf("miniatura disegnata: %d pixel", n)
 	}
@@ -133,14 +133,13 @@ func TestTraySmoke(t *testing.T) {
 	}
 }
 
-// capturedBlue: PrintWindow del controllo in un bitmap a 32 bit; conta i pixel con blu = 128 (colore dell'immagine di prova).
+// capturedBlue: cattura del controllo (tre metodi, si tiene il migliore); conta i pixel con blu = 128 (colore dell'immagine di prova).
 func capturedBlue(hwnd uintptr) (n, w, h int) {
 	n, w, h, _ = capturedStats(hwnd)
 	return
 }
 
-// capturedStats: oltre ai pixel blu = 128 restituisce quanti pixel non sono bianchi (per capire se la cattura funziona).
-func capturedStats(hwnd uintptr) (n, w, h, nonWhite int) {
+func capturedStats(hwnd uintptr) (best, w, h int, info string) {
 	var rc struct{ L, T, R, B int32 }
 	user32.NewProc("GetClientRect").Call(hwnd, uintptr(unsafe.Pointer(&rc)))
 	w, h = int(rc.R), int(rc.B)
@@ -148,31 +147,52 @@ func capturedStats(hwnd uintptr) (n, w, h, nonWhite int) {
 		return
 	}
 	gdi := windows.NewLazySystemDLL("gdi32.dll")
-	dc, _, _ := user32.NewProc("GetDC").Call(0)
-	mem, _, _ := gdi.NewProc("CreateCompatibleDC").Call(dc)
-	bmp, _, _ := gdi.NewProc("CreateCompatibleBitmap").Call(dc, uintptr(w), uintptr(h))
-	gdi.NewProc("SelectObject").Call(mem, bmp)
-	user32.NewProc("PrintWindow").Call(hwnd, mem, 1) // PW_CLIENTONLY
-	bi := struct {
-		Size            uint32
-		W, H            int32
-		Planes, Bits    uint16
-		Comp, SizeImg   uint32
-		XPels, YPels    int32
-		ClrUsed, ClrImp uint32
-	}{Size: 40, W: int32(w), H: -int32(h), Planes: 1, Bits: 32}
-	px := make([]byte, w*h*4)
-	gdi.NewProc("GetDIBits").Call(mem, bmp, 0, uintptr(h), uintptr(unsafe.Pointer(&px[0])), uintptr(unsafe.Pointer(&bi)), 0)
-	for i := 0; i+3 < len(px); i += 4 {
-		if px[i] == 128 { // blu (BGRA)
-			n++
+	for _, method := range []string{"WM_PRINT", "PrintWindow", "BitBlt"} {
+		wdc, _, _ := user32.NewProc("GetDC").Call(hwnd)
+		mem, _, _ := gdi.NewProc("CreateCompatibleDC").Call(wdc)
+		bmp, _, _ := gdi.NewProc("CreateCompatibleBitmap").Call(wdc, uintptr(w), uintptr(h))
+		gdi.NewProc("SelectObject").Call(mem, bmp)
+		// sfondo di partenza rosso (0x0000FF in COLORREF): se resta, il metodo non ha disegnato niente
+		br, _, _ := gdi.NewProc("CreateSolidBrush").Call(0x0000FF)
+		user32.NewProc("FillRect").Call(mem, uintptr(unsafe.Pointer(&rc)), br)
+		gdi.NewProc("DeleteObject").Call(br)
+		switch method {
+		case "WM_PRINT":
+			user32.NewProc("SendMessageW").Call(hwnd, 0x317, mem, 0x1C) // PRF_CLIENT|PRF_ERASEBKGND|PRF_CHILDREN
+		case "PrintWindow":
+			user32.NewProc("PrintWindow").Call(hwnd, mem, 1)
+		default:
+			gdi.NewProc("BitBlt").Call(mem, 0, 0, uintptr(w), uintptr(h), wdc, 0, 0, 0x00CC0020)
 		}
-		if px[i] != 255 || px[i+1] != 255 || px[i+2] != 255 {
-			nonWhite++
+		bi := struct {
+			Size            uint32
+			W, H            int32
+			Planes, Bits    uint16
+			Comp, SizeImg   uint32
+			XPels, YPels    int32
+			ClrUsed, ClrImp uint32
+		}{Size: 40, W: int32(w), H: -int32(h), Planes: 1, Bits: 32}
+		px := make([]byte, w*h*4)
+		gdi.NewProc("GetDIBits").Call(mem, bmp, 0, uintptr(h), uintptr(unsafe.Pointer(&px[0])), uintptr(unsafe.Pointer(&bi)), 0)
+		n, red, white := 0, 0, 0
+		for i := 0; i+3 < len(px); i += 4 {
+			if px[i] == 128 { // blu (BGRA)
+				n++
+			}
+			if px[i] == 0 && px[i+1] == 0 && px[i+2] == 255 {
+				red++
+			}
+			if px[i] == 255 && px[i+1] == 255 && px[i+2] == 255 {
+				white++
+			}
 		}
+		info += fmt.Sprintf(" [%s: immagine=%d rosso=%d bianco=%d]", method, n, red, white)
+		if n > best {
+			best = n
+		}
+		gdi.NewProc("DeleteObject").Call(bmp)
+		gdi.NewProc("DeleteDC").Call(mem)
+		user32.NewProc("ReleaseDC").Call(hwnd, wdc)
 	}
-	gdi.NewProc("DeleteObject").Call(bmp)
-	gdi.NewProc("DeleteDC").Call(mem)
-	user32.NewProc("ReleaseDC").Call(0, dc)
 	return
 }
