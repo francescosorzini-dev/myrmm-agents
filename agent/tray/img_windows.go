@@ -563,7 +563,14 @@ func insertThumb(name string, t *thumbT) {
 	pSendMessage.Call(uintptr(hRich), emGetSel, uintptr(unsafe.Pointer(&a)), uintptr(unsafe.Pointer(&b)))
 	rtfData, rtfPos = []byte(t.rtf), 0
 	es := editStream{CbLo: uint32(rtfCB), CbHi: uint32(uint64(rtfCB) >> 32)}
-	pSendMessage.Call(uintptr(hRich), emStreamIn, sfRTF|sffSelection, uintptr(unsafe.Pointer(&es)))
+	// il controllo è di sola lettura: l'inserimento di un'immagine va fatto con la scrittura abilitata
+	const emSetReadOnly, wmGetTextLength = 0x00CF, 0x000E
+	l0, _, _ := pSendMessage.Call(uintptr(hRich), wmGetTextLength, 0, 0)
+	pSendMessage.Call(uintptr(hRich), emSetReadOnly, 0, 0)
+	n, _, _ := pSendMessage.Call(uintptr(hRich), emStreamIn, sfRTF|sffSelection, uintptr(unsafe.Pointer(&es)))
+	pSendMessage.Call(uintptr(hRich), emSetReadOnly, 1, 0)
+	l1, _, _ := pSendMessage.Call(uintptr(hRich), wmGetTextLength, 0, 0)
+	logf("miniatura: streamin=%d, testo %d -> %d, errore=%d", n, l0, l1, es.Err)
 	var c, d int32
 	pSendMessage.Call(uintptr(hRich), emGetSel, uintptr(unsafe.Pointer(&c)), uintptr(unsafe.Pointer(&d)))
 	imgSpans = append(imgSpans, imgSpan{from: int(a), to: int(d), name: name})

@@ -113,7 +113,8 @@ func TestTraySmoke(t *testing.T) {
 	if rich == 0 {
 		t.Error("controllo RichEdit non trovato")
 	} else if n, w, hh, info := capturedStats(rich); n < 5000 {
-		t.Errorf("miniatura non disegnata: %d pixel dell'immagine su un controllo %dx%d:%s", n, w, hh, info)
+		lg, _ := os.ReadFile(filepath.Join(dir, "myrmm-tray.log"))
+		t.Errorf("miniatura non disegnata: %d pixel dell'immagine su un controllo %dx%d:%s\nlog:\n%s", n, w, hh, info, lg)
 	} else {
 		t.Logf("miniatura disegnata: %d pixel", n)
 	}
