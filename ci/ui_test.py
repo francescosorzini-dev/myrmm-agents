@@ -203,7 +203,10 @@ try:
         p.reload(); p.wait_for_selector("#invT")
         rec("colonne: scelta ricordata per utente (server)", p.locator("#invT thead th:visible").count() == n1)
         p.click("#colsel summary"); nOff = p.locator("#invCols label.off").count()
-        p.locator("#invCols label.off input").first.click(); p.wait_for_load_state("load"); p.wait_for_selector("#invT"); p.click("#colsel summary")
+        p.locator("#invCols label.off input").first.click()
+        try: p.wait_for_function("n=>document.querySelectorAll('#invCols label.off').length===n", arg=nOff - 1, timeout=10000)   # il clic ricarica la pagina: si attende l'effetto, non il solo evento load
+        except Exception: pass
+        p.wait_for_selector("#invT"); p.click("#colsel summary")
         rec("colonne: attivazione di un campo del catalogo", p.locator("#invCols label.off").count() == nOff - 1, f"{nOff}->{p.locator('#invCols label.off').count()}")
         rec("device: «+ Nuovo» assorbito dal menu Aggiungi", p.locator("#newsel").count() == 0)
         p.click("#addm summary"); p.wait_for_selector("#addQ"); p.wait_for_timeout(200); p.screenshot(path=OUT+"/aggiungi-menu.png")
@@ -787,6 +790,8 @@ try:
         p.click("form[action$=tk_run] button[type=submit]"); p.wait_for_selector("main p.ok")
         jt2 = dbq("SELECT id,expires FROM jobs WHERE origin=?", f"tk:{tid}")
         rec("ticket: script lanciato dal ticket (con scadenza)", len(jt2) == 1 and jt2[0][1] is not None, str(jt2))
+        p.goto(BASE + f"?view=device&id={dbq('SELECT device_id FROM tickets WHERE id=?', tid)[0][0]}#t=panoramica"); p.evaluate("()=>{try{sessionStorage.clear()}catch(e){}}"); p.reload(); p.wait_for_selector("div.qa", state="attached"); p.evaluate("()=>{var q=document.querySelector('.dnav a, .dnav button'); if(q) q.click()}"); p.wait_for_selector("div.qa")
+        rec("scheda device: «Ultime attività» con il nome dello script e l'origine", "Monitor: RAM in uso" in p.inner_text("main") and f"dal ticket #{tid}" in p.inner_text("main"), p.inner_text("main")[:200])
         p.goto(BASE + "?view=jobs"); p.wait_for_selector("main table")
         rec("attività: il job lanciato dal ticket mostra il nome dello script, non il codice", "Monitor: RAM in uso" in p.inner_text(f"tr[data-job='{jt2[0][0]}']"), p.inner_text(f"tr[data-job='{jt2[0][0]}']")[:150])
         post_res(jt2[0][0], 0)
