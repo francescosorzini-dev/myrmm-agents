@@ -222,6 +222,58 @@ func tools() []tool {
 			schema: obj(nil, "id", newMap("type", "integer", "description", "facoltativo: un incarico preciso")), run: post("task_claim", "id"), noteAfter: true},
 		{name: "myrmm_task_report", desc: "AI locale: riporta su un incarico preso in carico. note = passo o domanda; status: in_progress (predefinito), waiting_answer (serve una decisione: fermati), done, failed; result = riassunto finale; job_ids = job lanciati.",
 			schema: obj([]string{"id"}, "id", tI(), "note", tS(), "status", tS(), "result", tS(), "job_ids", newMap("type", "array", "items", tI())), run: post("task_report", "id", "note", "status", "result", "job_ids"), noteAfter: true},
+		{name: "myrmm_list_runbooks", desc: "Runbook (sequenze di script) che si possono avviare, con i passi e se questo token può usarli.",
+			schema: obj(nil), run: one("runbooks")},
+		{name: "myrmm_run_runbook", desc: "Avvia un runbook su un device. Sul collaudo parte subito; altrove aspetta l'approvazione di una persona (che autorizza tutto il runbook). Attende l'esito del primo passo.",
+			schema: obj([]string{"device_id", "runbook_id"}, "device_id", tI(), "runbook_id", tI(), "wait", tI()), run: ord("runbook_run", true, "device_id", "runbook_id"), noteAfter: true},
+		{name: "myrmm_service", desc: "Azione su un servizio del device: op = start, stop, restart, auto, manual, disabled; service = nome del servizio (Windows), unità systemd (Linux) o etichetta launchd (macOS).",
+			schema: obj([]string{"device_id", "service", "op"}, "device_id", tI(), "service", tS(), "op", tS(), "wait", tI()), run: ord("service", true, "device_id", "service", "op"), noteAfter: true},
+		{name: "myrmm_power", desc: "Riavvio, spegnimento programmato (minutes, predefinito 5) o annullamento (cancel). Riavvio e spegnimento aspettano SEMPRE l'approvazione di una persona in console, anche sul collaudo.",
+			schema: obj([]string{"device_id", "op"}, "device_id", tI(), "op", newMap("type", "string", "description", "reboot, shutdown o cancel"), "minutes", tI(), "message", tS()), run: ord("power", false, "device_id", "op", "minutes", "message")},
+		{name: "myrmm_list_patches", desc: "Patch note di un device (stato, gravità, decisione di approvazione) dall'ultima scansione.",
+			schema: obj([]string{"device_id"}, "device_id", tI(), "limit", tI()), run: one("patches", "device_id", "limit"), noteAfter: true},
+		{name: "myrmm_patch_scan", desc: "Avvia la scansione patch su un device Windows con agent.",
+			schema: obj([]string{"device_id"}, "device_id", tI(), "wait", tI()), run: ord("patch_scan", true, "device_id"), noteAfter: true},
+		{name: "myrmm_patch_install", desc: "Installa le patch note (tutte quelle non rifiutate, oppure solo le uids indicate). Nessun riavvio automatico.",
+			schema: obj([]string{"device_id"}, "device_id", tI(), "uids", newMap("type", "array", "items", tS())), run: ord("patch_install", false, "device_id", "uids")},
+		{name: "myrmm_list_tickets", desc: "Ticket. status: open (predefinito), closed, all. Filtri: device_id, site, q (nel titolo).",
+			schema: obj(nil, "status", tS(), "device_id", tI(), "site", tS(), "q", tS(), "limit", tI()), run: one("tickets", "status", "device_id", "site", "q", "limit"), noteAfter: true},
+		{name: "myrmm_get_ticket", desc: "Un ticket con le ultime note.",
+			schema: obj([]string{"id"}, "id", tI()), run: one("ticket", "id"), noteAfter: true},
+		{name: "myrmm_create_ticket", desc: "Apre un ticket su un device (device_id) o su un cliente (site). priority: low, normal, high, crit. note = prima nota.",
+			schema: obj([]string{"title"}, "title", tS(), "device_id", tI(), "site", tS(), "priority", tS(), "note", tS()), run: post("ticket_create", "title", "device_id", "site", "priority", "note")},
+		{name: "myrmm_add_ticket_note", desc: "Aggiunge una nota interna a un ticket aperto (minutes = tempo dedicato, facoltativo).",
+			schema: obj([]string{"id", "text"}, "id", tI(), "text", tS(), "minutes", tI()), run: post("ticket_note", "id", "text", "minutes")},
+		{name: "myrmm_list_assets", desc: "Asset (apparati, licenze, contratti…). Filtri: site, type_id, q (nome, seriale, modello). Con types=true elenca i tipi e i loro campi.",
+			schema: obj(nil, "site", tS(), "type_id", tI(), "q", tS(), "types", tB(), "limit", tI()), run: func(s *server, a *omap) (int, any, error) {
+				var t any
+				if truthy(a.val("types")) {
+					t = json.Number("1")
+				}
+				st, j := s.call("assets", "GET", nil, qp{"site", a.val("site")}, qp{"type_id", a.val("type_id")}, qp{"q", a.val("q")}, qp{"types", t}, qp{"limit", a.val("limit")})
+				return st, j, nil
+			}, noteAfter: true},
+		{name: "myrmm_get_asset", desc: "Scheda di un asset (le password non vengono mai mostrate).",
+			schema: obj([]string{"id"}, "id", tI()), run: one("asset", "id"), noteAfter: true},
+		{name: "myrmm_create_asset", desc: "Crea un asset: type o type_id, name, site (o device_id), facoltativi location, serial, model, status (attivo, scorta, dismesso), purchased e expiry (AAAA-MM-GG), fields {chiave: valore} per i campi del tipo. Le password le inserisce una persona dalla console.",
+			schema: obj([]string{"name"}, "type", tS(), "type_id", tI(), "name", tS(), "site", tS(), "device_id", tI(), "location", tS(), "serial", tS(), "model", tS(), "status", tS(), "purchased", tS(), "expiry", tS(), "fields", newMap("type", "object")),
+			run:    post("asset_create", "type", "type_id", "name", "site", "device_id", "location", "serial", "model", "status", "purchased", "expiry", "fields")},
+		{name: "myrmm_list_schedules", desc: "Pianificazioni di script sui device e di runbook (sola lettura).",
+			schema: obj(nil, "limit", tI()), run: one("schedules", "limit")},
+		{name: "myrmm_list_rules", desc: "Regole di monitoraggio e risposta automatica (sola lettura, solo token senza limiti di cliente).",
+			schema: obj(nil), run: one("rules")},
+	}
+}
+
+// ord: ordine che può partire subito (collaudo): dopo l'accodamento attende l'esito.
+func ord(res string, wait bool, keys ...string) func(s *server, a *omap) (int, any, error) {
+	p := post(res, keys...)
+	return func(s *server, a *omap) (int, any, error) {
+		st, j, err := p(s, a)
+		if err != nil || !wait {
+			return st, j, err
+		}
+		return waitFor(s, a, st, j)
 	}
 }
 

@@ -105,6 +105,26 @@ def t_task_cancel(a): return _post("task_cancel", a, ("id", "reason"))
 def t_task_next(a): return _post("task_claim", a, ("id",))
 def t_task_report(a): return _post("task_report", a, ("id", "note", "status", "result", "job_ids"))
 
+def _ord(res, a, keys, wait=True):
+    st, j = _post(res, a, keys)
+    return _wait(st, j, a) if wait else (st, j)
+def t_runbooks(a): return call("runbooks")
+def t_run_runbook(a): return _ord("runbook_run", a, ("device_id", "runbook_id"))
+def t_service(a): return _ord("service", a, ("device_id", "service", "op"))
+def t_power(a): return _ord("power", a, ("device_id", "op", "minutes", "message"), False)
+def t_patches(a): return call("patches", device_id=a.get("device_id"), limit=a.get("limit"))
+def t_patch_scan(a): return _ord("patch_scan", a, ("device_id",))
+def t_patch_install(a): return _ord("patch_install", a, ("device_id", "uids"), False)
+def t_tickets(a): return call("tickets", status=a.get("status"), device_id=a.get("device_id"), site=a.get("site"), q=a.get("q"), limit=a.get("limit"))
+def t_ticket(a): return call("ticket", id=a.get("id"))
+def t_ticket_create(a): return _post("ticket_create", a, ("title", "device_id", "site", "priority", "note"))
+def t_ticket_note(a): return _post("ticket_note", a, ("id", "text", "minutes"))
+def t_assets(a): return call("assets", site=a.get("site"), type_id=a.get("type_id"), q=a.get("q"), types=1 if a.get("types") else None, limit=a.get("limit"))
+def t_asset(a): return call("asset", id=a.get("id"))
+def t_asset_create(a): return _post("asset_create", a, ("type", "type_id", "name", "site", "device_id", "location", "serial", "model", "status", "purchased", "expiry", "fields"))
+def t_schedules(a): return call("schedules", limit=a.get("limit"))
+def t_rules(a): return call("rules")
+
 
 TOOLS = {
     "myrmm_guidelines": ("Linee guida di myrmm: regole per l'assistente, cosa ha senso per tipo di device, uso dei token. Leggile prima di eseguire qualsiasi cosa.", obj(), t_guidelines),
@@ -138,6 +158,22 @@ TOOLS = {
                         obj({"id": {"type": "integer", "description": "facoltativo: un incarico preciso"}}), t_task_next),
     "myrmm_task_report": ("AI locale: riporta su un incarico preso in carico. note = passo o domanda; status: in_progress (predefinito), waiting_answer (serve una decisione: fermati), done, failed; result = riassunto finale; job_ids = job lanciati.",
                           obj({"id": I, "note": S, "status": S, "result": S, "job_ids": {"type": "array", "items": I}}, ["id"]), t_task_report),
+    "myrmm_list_runbooks": ("Runbook (sequenze di script) che si possono avviare, con i passi e se questo token può usarli.", obj(), t_runbooks),
+    "myrmm_run_runbook": ("Avvia un runbook su un device. Sul collaudo parte subito; altrove aspetta l'approvazione di una persona (che autorizza tutto il runbook). Attende l'esito del primo passo.", obj({"device_id": I, "runbook_id": I, "wait": I}, ["device_id", "runbook_id"]), t_run_runbook),
+    "myrmm_service": ("Azione su un servizio del device: op = start, stop, restart, auto, manual, disabled; service = nome del servizio (Windows), unità systemd (Linux) o etichetta launchd (macOS).", obj({"device_id": I, "service": S, "op": S, "wait": I}, ["device_id", "service", "op"]), t_service),
+    "myrmm_power": ("Riavvio, spegnimento programmato (minutes, predefinito 5) o annullamento (cancel). Riavvio e spegnimento aspettano SEMPRE l'approvazione di una persona in console, anche sul collaudo.", obj({"device_id": I, "op": {"type": "string", "description": "reboot, shutdown o cancel"}, "minutes": I, "message": S}, ["device_id", "op"]), t_power),
+    "myrmm_list_patches": ("Patch note di un device (stato, gravità, decisione di approvazione) dall'ultima scansione.", obj({"device_id": I, "limit": I}, ["device_id"]), t_patches),
+    "myrmm_patch_scan": ("Avvia la scansione patch su un device Windows con agent.", obj({"device_id": I, "wait": I}, ["device_id"]), t_patch_scan),
+    "myrmm_patch_install": ("Installa le patch note (tutte quelle non rifiutate, oppure solo le uids indicate). Nessun riavvio automatico.", obj({"device_id": I, "uids": {"type": "array", "items": S}}, ["device_id"]), t_patch_install),
+    "myrmm_list_tickets": ("Ticket. status: open (predefinito), closed, all. Filtri: device_id, site, q (nel titolo).", obj({"status": S, "device_id": I, "site": S, "q": S, "limit": I}), t_tickets),
+    "myrmm_get_ticket": ("Un ticket con le ultime note.", obj({"id": I}, ["id"]), t_ticket),
+    "myrmm_create_ticket": ("Apre un ticket su un device (device_id) o su un cliente (site). priority: low, normal, high, crit. note = prima nota.", obj({"title": S, "device_id": I, "site": S, "priority": S, "note": S}, ["title"]), t_ticket_create),
+    "myrmm_add_ticket_note": ("Aggiunge una nota interna a un ticket aperto (minutes = tempo dedicato, facoltativo).", obj({"id": I, "text": S, "minutes": I}, ["id", "text"]), t_ticket_note),
+    "myrmm_list_assets": ("Asset (apparati, licenze, contratti…). Filtri: site, type_id, q (nome, seriale, modello). Con types=true elenca i tipi e i loro campi.", obj({"site": S, "type_id": I, "q": S, "types": B, "limit": I}), t_assets),
+    "myrmm_get_asset": ("Scheda di un asset (le password non vengono mai mostrate).", obj({"id": I}, ["id"]), t_asset),
+    "myrmm_create_asset": ("Crea un asset: type o type_id, name, site (o device_id), facoltativi location, serial, model, status (attivo, scorta, dismesso), purchased e expiry (AAAA-MM-GG), fields {chiave: valore} per i campi del tipo. Le password le inserisce una persona dalla console.", obj({"type": S, "type_id": I, "name": S, "site": S, "device_id": I, "location": S, "serial": S, "model": S, "status": S, "purchased": S, "expiry": S, "fields": {"type": "object"}}, ["name"]), t_asset_create),
+    "myrmm_list_schedules": ("Pianificazioni di script sui device e di runbook (sola lettura).", obj({"limit": I}), t_schedules),
+    "myrmm_list_rules": ("Regole di monitoraggio e risposta automatica (sola lettura, solo token senza limiti di cliente).", obj(), t_rules),
 }
 
 
@@ -145,7 +181,7 @@ def handle(m):
     meth, mid, p = m.get("method"), m.get("id"), m.get("params") or {}
     if mid is None: return None   # notifiche
     if meth == "initialize":
-        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.68.0"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
+        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.69.0"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
     if meth == "ping": return {}
     if meth == "tools/list":
         return {"tools": [{"name": n, "description": d, "inputSchema": s} for n, (d, s, _) in TOOLS.items()]}
@@ -154,7 +190,7 @@ def handle(m):
         if n not in TOOLS: return {"__error": (-32602, "strumento sconosciuto: %s" % n)}
         st, j = TOOLS[n][2](a)
         txt = json.dumps(j, ensure_ascii=False, indent=1)
-        return {"content": [{"type": "text", "text": txt + ("\n\n" + NOTE if n in ("myrmm_run_script", "myrmm_run_draft", "myrmm_run_inline", "myrmm_get_job", "myrmm_get_device", "myrmm_task_list", "myrmm_task_get", "myrmm_task_answer", "myrmm_task_next", "myrmm_task_report") else "")}], "isError": st != 200}
+        return {"content": [{"type": "text", "text": txt + ("\n\n" + NOTE if n in ("myrmm_run_script", "myrmm_run_draft", "myrmm_run_inline", "myrmm_get_job", "myrmm_get_device", "myrmm_task_list", "myrmm_task_get", "myrmm_task_answer", "myrmm_task_next", "myrmm_task_report", "myrmm_run_runbook", "myrmm_service", "myrmm_list_patches", "myrmm_patch_scan", "myrmm_list_tickets", "myrmm_get_ticket", "myrmm_list_assets", "myrmm_get_asset") else "")}], "isError": st != 200}
     return {"__error": (-32601, "metodo non supportato: %s" % meth)}
 
 
