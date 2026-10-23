@@ -208,6 +208,37 @@ func tools() []tool {
 				return st, j, nil
 			}},
 		{name: "myrmm_audit", desc: "Ultime voci del registro di audit (solo token senza limite di cliente).", schema: obj(nil, "limit", tI(), "since", tI()), run: one("audit", "limit", "since")},
+		{name: "myrmm_task_create", desc: "AI superiore: scrive un incarico per un'AI che lavora sui device. title breve, goal = cosa ottenere e come capire che è fatto, constraints = cosa NON fare. Con device_id o site. Sul collaudo parte subito; altrove aspetta l'approvazione di un amministratore.",
+			schema: obj([]string{"title", "goal"}, "title", tS(), "goal", tS(), "constraints", tS(), "site", tS(), "device_id", tI()), run: post("task_create", "title", "goal", "constraints", "site", "device_id"), noteAfter: false},
+		{name: "myrmm_task_list", desc: "Elenca gli incarichi. status: uno o più stati separati da virgola (awaiting_approval, pending, in_progress, waiting_answer, answered, done, failed, cancelled).",
+			schema: obj(nil, "status", tS(), "limit", tI()), run: one("tasks", "status", "limit"), noteAfter: true},
+		{name: "myrmm_task_get", desc: "Un incarico con tutta la cronologia (passi, domande, risposte, job, risultato).",
+			schema: obj([]string{"id"}, "id", tI()), run: one("task", "id"), noteAfter: true},
+		{name: "myrmm_task_answer", desc: "Risponde alla domanda dell'AI che lavora sull'incarico (status waiting_answer) o aggiunge una nota/istruzione a un incarico aperto.",
+			schema: obj([]string{"id", "text"}, "id", tI(), "text", tS()), run: post("task_answer", "id", "text"), noteAfter: true},
+		{name: "myrmm_task_cancel", desc: "Annulla un incarico aperto.",
+			schema: obj([]string{"id"}, "id", tI(), "reason", tS()), run: post("task_cancel", "id", "reason")},
+		{name: "myrmm_task_next", desc: "AI locale: prende in carico il prossimo incarico (prima quelli che hanno ricevuto risposta). Risponde {task:null} se non c'è nulla. Poi lavora con gli altri strumenti e riporta con myrmm_task_report.",
+			schema: obj(nil, "id", newMap("type", "integer", "description", "facoltativo: un incarico preciso")), run: post("task_claim", "id"), noteAfter: true},
+		{name: "myrmm_task_report", desc: "AI locale: riporta su un incarico preso in carico. note = passo o domanda; status: in_progress (predefinito), waiting_answer (serve una decisione: fermati), done, failed; result = riassunto finale; job_ids = job lanciati.",
+			schema: obj([]string{"id"}, "id", tI(), "note", tS(), "status", tS(), "result", tS(), "job_ids", newMap("type", "array", "items", tI())), run: post("task_report", "id", "note", "status", "result", "job_ids"), noteAfter: true},
+	}
+}
+
+// post: POST di una risorsa con i soli parametri indicati (quelli presenti e non vuoti).
+func post(res string, keys ...string) func(s *server, a *omap) (int, any, error) {
+	return func(s *server, a *omap) (int, any, error) {
+		d := newMap()
+		for _, k := range keys {
+			if v := a.val(k); v != nil {
+				if t, ok := v.(string); ok && t == "" {
+					continue
+				}
+				d.set(k, v)
+			}
+		}
+		st, j := s.call(res, "POST", d)
+		return st, j, nil
 	}
 }
 

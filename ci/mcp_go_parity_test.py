@@ -95,7 +95,7 @@ try:
     t = next(x for x in go_ if x.get("id") == 4)["result"]["content"][0]["text"]
     rec("ordine delle chiavi del server rispettato e «è/€» in chiaro", t.index('"z"') < t.index('"a"') and "Perché € " in t and '"vuoto": []' in t and "{}" in t, t[:200])
     ti = next(x for x in go_ if x.get("id") == 3)["result"]["tools"]
-    rec("17 strumenti con descrizioni e schemi uguali a Python", len(ti) == 17 and ti == next(x for x in po if x.get("id") == 3)["result"]["tools"], len(ti))
+    rec("24 strumenti con descrizioni e schemi uguali a Python", len(ti) == 24 and ti == next(x for x in po if x.get("id") == 3)["result"]["tools"], len(ti))
     rec("nessuna risposta alle notifiche, ai testi non JSON e alle righe vuote", [x.get("id") for x in go_ if x.get("id") in (None,)] == [] and len(go_) == len(po))
         # scarti voluti, verificati a parte: i booleani nella query
     _, gl2, _ = run([EXE], lines=[call(1, "myrmm_list_devices", {"online": True}), call(2, "myrmm_list_devices", {"online": False})])

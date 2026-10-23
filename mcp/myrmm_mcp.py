@@ -96,6 +96,16 @@ def t_run_inline(a):
     return _wait(*call("run", "POST", {"device_id": a.get("device_id"), "body": a.get("body"), "platform": a.get("platform", "any"), "timeout": a.get("timeout", 300), "vars": a.get("vars") or {}, "dry_run": a.get("dry_run", True)}), a)
 
 
+def _post(res, a, keys): return call(res, "POST", {k: a.get(k) for k in keys if a.get(k) not in (None, "")})
+def t_task_create(a): return _post("task_create", a, ("title", "goal", "constraints", "site", "device_id"))
+def t_task_list(a): return call("tasks", status=a.get("status"), limit=a.get("limit"))
+def t_task_get(a): return call("task", id=a.get("id"))
+def t_task_answer(a): return _post("task_answer", a, ("id", "text"))
+def t_task_cancel(a): return _post("task_cancel", a, ("id", "reason"))
+def t_task_next(a): return _post("task_claim", a, ("id",))
+def t_task_report(a): return _post("task_report", a, ("id", "note", "status", "result", "job_ids"))
+
+
 TOOLS = {
     "myrmm_guidelines": ("Linee guida di myrmm: regole per l'assistente, cosa ha senso per tipo di device, uso dei token. Leggile prima di eseguire qualsiasi cosa.", obj(), t_guidelines),
     "myrmm_status": ("Mostra chi sono (ruolo, clienti visibili, tipo di scrittura consentita, scadenza del token).", obj(), t_status),
@@ -118,6 +128,16 @@ TOOLS = {
     "myrmm_get_job": ("Stato e risultato di un job; wait = secondi di attesa del risultato (max 25).", obj({"id": I, "wait": I}, ["id"]), t_job),
     "myrmm_cancel_job": ("Annulla una richiesta propria non ancora consegnata.", obj({"job_id": I}, ["job_id"]), t_cancel),
     "myrmm_audit": ("Ultime voci del registro di audit (solo token senza limite di cliente).", obj({"limit": I, "since": I}), t_audit),
+    "myrmm_task_create": ("AI superiore: scrive un incarico per un'AI che lavora sui device. title breve, goal = cosa ottenere e come capire che è fatto, constraints = cosa NON fare. Con device_id o site. Sul collaudo parte subito; altrove aspetta l'approvazione di un amministratore.",
+                          obj({"title": S, "goal": S, "constraints": S, "site": S, "device_id": I}, ["title", "goal"]), t_task_create),
+    "myrmm_task_list": ("Elenca gli incarichi. status: uno o più stati separati da virgola (awaiting_approval, pending, in_progress, waiting_answer, answered, done, failed, cancelled).", obj({"status": S, "limit": I}), t_task_list),
+    "myrmm_task_get": ("Un incarico con tutta la cronologia (passi, domande, risposte, job, risultato).", obj({"id": I}, ["id"]), t_task_get),
+    "myrmm_task_answer": ("Risponde alla domanda dell'AI che lavora sull'incarico (status waiting_answer) o aggiunge una nota/istruzione a un incarico aperto.", obj({"id": I, "text": S}, ["id", "text"]), t_task_answer),
+    "myrmm_task_cancel": ("Annulla un incarico aperto.", obj({"id": I, "reason": S}, ["id"]), t_task_cancel),
+    "myrmm_task_next": ("AI locale: prende in carico il prossimo incarico (prima quelli che hanno ricevuto risposta). Risponde {task:null} se non c'è nulla. Poi lavora con gli altri strumenti e riporta con myrmm_task_report.",
+                        obj({"id": {"type": "integer", "description": "facoltativo: un incarico preciso"}}), t_task_next),
+    "myrmm_task_report": ("AI locale: riporta su un incarico preso in carico. note = passo o domanda; status: in_progress (predefinito), waiting_answer (serve una decisione: fermati), done, failed; result = riassunto finale; job_ids = job lanciati.",
+                          obj({"id": I, "note": S, "status": S, "result": S, "job_ids": {"type": "array", "items": I}}, ["id"]), t_task_report),
 }
 
 
@@ -125,7 +145,7 @@ def handle(m):
     meth, mid, p = m.get("method"), m.get("id"), m.get("params") or {}
     if mid is None: return None   # notifiche
     if meth == "initialize":
-        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.67.2"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
+        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.68.0"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
     if meth == "ping": return {}
     if meth == "tools/list":
         return {"tools": [{"name": n, "description": d, "inputSchema": s} for n, (d, s, _) in TOOLS.items()]}
@@ -134,7 +154,7 @@ def handle(m):
         if n not in TOOLS: return {"__error": (-32602, "strumento sconosciuto: %s" % n)}
         st, j = TOOLS[n][2](a)
         txt = json.dumps(j, ensure_ascii=False, indent=1)
-        return {"content": [{"type": "text", "text": txt + ("\n\n" + NOTE if n in ("myrmm_run_script", "myrmm_run_draft", "myrmm_run_inline", "myrmm_get_job", "myrmm_get_device") else "")}], "isError": st != 200}
+        return {"content": [{"type": "text", "text": txt + ("\n\n" + NOTE if n in ("myrmm_run_script", "myrmm_run_draft", "myrmm_run_inline", "myrmm_get_job", "myrmm_get_device", "myrmm_task_list", "myrmm_task_get", "myrmm_task_answer", "myrmm_task_next", "myrmm_task_report") else "")}], "isError": st != 200}
     return {"__error": (-32601, "metodo non supportato: %s" % meth)}
 
 
