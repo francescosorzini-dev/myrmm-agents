@@ -1,4 +1,4 @@
-# myrmm v1.71.0 — manuale
+# myrmm v1.72.0 — manuale
 
 RMM (Remote Monitoring & Management) leggero per gestire flotte di PC e server di più clienti, pensato per
 girare su un **hosting condiviso Apache/PHP con SQLite**: nessun processo sempre attivo, nessun cron,
@@ -1008,6 +1008,14 @@ Obiettivo: far svolgere all'AI superiore anche il ruolo dell'amministratore, **c
 - **Pulizia dei token.** I token revocati o scaduti si tolgono dall'elenco uno alla volta («Rimuovi») o tutti insieme («Rimuovi revocati e scaduti»); da AI con `token_purge`. I job in attesa di un token revocato erano già annullati.
 - **Test.** `ci/autonomy_test.py` (91 controlli): creazione e rifiuti, catalogo per token, ask/do, eliminazioni con cestino, clienti, utenti, token, irreversibili, ordini e gruppo, pausa, connettore, audit.
 
+## 8.71 Cestino per tutto e device parcheggiati (1.72.0)
+
+- **Cestino esteso.** Oltre a documenti, asset e ticket, ora finiscono nel cestino (e si ripristinano con lo stesso id) script, pianificazioni, controlli, regole (con le loro pianificazioni), variabili, runbook e loro programmazioni, filtri, policy patch, finestre di manutenzione, utenti (con hash e clienti), clienti (con token di installazione e variabili) e **device**. Vale per le eliminazioni dalla console e per quelle dell'AI (`delete_*`, `user_delete`, `site_delete`, `device_delete`). Restano fuori, e si eliminano subito: storico dei job, viste, pacchetti, modelli, credenziali di rete, backup, allegati e note.
+- **Device.** Il cestino conserva la riga del device (con la chiave dell'agent), campi, pianificazioni, controlli, variabili, ticket con note e collegamenti ad asset e documenti, per 90 giorni (gli altri elementi 30). Si perdono lo storico dei job, gli alert e le metriche. Il ripristino riporta lo stesso id e la stessa chiave: l'agent riprende senza riarruolarsi.
+- **Parcheggio e autodisinstallazione.** Finché un device è nel cestino la sua chiave non è «sconosciuta»: l'agent che si rifà vivo riceve risposte neutre (`parked`, nessun job) e non si riarruola. Passate **6 ore** dall'eliminazione il primo heartbeat riceve l'ordine di disinstallazione firmato (lo stesso meccanismo di «Disinstalla agent»); l'agent conferma con `uninstall_ack`, si rimuove e nel cestino resta la voce «Agent disinstallato il …». Prima delle 6 ore l'ack è rifiutato (409). Se il device viene ripristinato prima, nulla si disinstalla. Nessuna modifica all'agent.
+- **Autonomia.** `device_delete` e `agent_uninstall` restano nella categoria «distruttive» (dopo la disinstallazione non si torna indietro); `user_delete` e `site_delete` passano a «eliminazioni» perché ora sono recuperabili.
+- **Test.** `ci/trash_test.py` (58 controlli).
+
 ## 9. Controllo remoto (RustDesk)
 
 Orchestrazione, non un componente proprietario. Due script in libreria:
@@ -1170,6 +1178,7 @@ dist/                        binari di tutte le piattaforme (prodotti da release
 
 ## 17. Cronologia
 
+- **1.72.0** — **Cestino per tutto e device parcheggiati** (§8.71): script, regole, controlli, pianificazioni, variabili, runbook, filtri, policy, manutenzioni, utenti, clienti e device finiscono nel cestino e si ripristinano; un device nel cestino non si riarruola e, sei ore dopo l'eliminazione, l'agent che torna online si disinstalla da solo; `ci/trash_test.py`.
 - **1.71.0** — **Autonomia dei token e amministrazione** (§8.70): matrice di autonomia per token (vietata / con conferma / diretta per 10 categorie, preset e personalizzata); 23 nuove operazioni (eliminazioni con cestino, clienti, utenti, token, gruppo, irreversibili); «Ferma tutte le AI»; rimozione dei token revocati e scaduti dall'elenco; `ci/autonomy_test.py`.
 - **1.70.0** — **Operazioni generiche dell'AI superiore** (§8.69): alias dei PC e tutto ciò che si fa a mano in console tranne l'amministrazione; operazioni dirette o in coda di approvazione («Incarichi AI → Modifiche in attesa di approvazione»); 4 nuovi strumenti (44 in tutto); corretto l'aggiornamento di un documento che azzerava categoria e cliente se omessi; `ci/ops_test.py`.
 - **1.69.0** — **Ordini dell'AI superiore** (§8.68): runbook, servizi, riavvio/spegnimento (sempre con approvazione), patch, ticket e asset (lettura e creazione, senza password), pianificazioni e regole in lettura; 16 nuovi strumenti (40 in tutto) su connettore remoto, server MCP Go e Python; guida per l'assistente; `ci/orders_test.py`.
