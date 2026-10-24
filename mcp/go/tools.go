@@ -266,8 +266,8 @@ func tools() []tool {
 			schema: obj(nil), run: one("ops")},
 		{name: "myrmm_do", desc: "Esegue un'operazione del catalogo (op) con i suoi params. Le modifiche reversibili del tuo perimetro si applicano subito; la configurazione globale (script, regole, controlli, variabili, runbook, policy patch, spostamenti…) resta in attesa dell'approvazione di un amministratore e risponde status=held con change_id.",
 			schema: obj([]string{"op"}, "op", newMap("type", "string", "description", "nome da myrmm_list_ops"), "params", newMap("type", "object", "description", "parametri dell'operazione")), run: post("op", "op", "params")},
-		{name: "myrmm_get_config", desc: "Legge una configurazione: checks, variables (i segreti sono mascherati), filters, patch_policies, maintenance, departments, docs, changes (le tue modifiche in attesa e il loro esito). Le impostazioni globali richiedono un token senza limiti di cliente.",
-			schema: obj([]string{"kind"}, "kind", newMap("type", "string", "description", "checks, variables, filters, patch_policies, maintenance, departments, docs, changes")), run: one("config", "kind"), noteAfter: true},
+		{name: "myrmm_get_config", desc: "Legge una configurazione: checks, variables (i segreti sono mascherati), filters, patch_policies, maintenance, departments, docs, changes (le tue modifiche in attesa e il loro esito), tokens (token API con stato e autonomia, senza segreti), users. Le impostazioni globali richiedono un token senza limiti di cliente.",
+			schema: obj([]string{"kind"}, "kind", newMap("type", "string", "description", "checks, variables, filters, patch_policies, maintenance, departments, docs, changes, tokens, users")), run: one("config", "kind"), noteAfter: true},
 		{name: "myrmm_get_doc", desc: "Un documento della base di conoscenza con il testo.",
 			schema: obj([]string{"id"}, "id", tI()), run: one("doc", "id"), noteAfter: true},
 	}

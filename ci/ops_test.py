@@ -213,7 +213,7 @@ try:
         st, j = op(ADM, "schedule_add", {"device_id": dev["C-WIN"], "script_id": sid, "interval_min": 5}); q("DELETE FROM scripts WHERE id=?", sid); approve(j["change_id"])
         rec("approvazione tardiva: se lo script non esiste più la modifica risulta non riuscita", chg(j["change_id"])[0] == "failed" and "not found" in chg(j["change_id"])[1])
         st, ch = api(ADM, "config", kind="changes"); rec("config: le modifiche con stato ed esito", st == 200 and {"applied", "rejected", "failed"} <= {c["status"] for c in ch["changes"]})
-        st, ch2 = api(SUP, "config", kind="changes"); rec("config: il token limitato vede solo quelle del proprio perimetro", st == 200 and all(c["site"] == "" or c["site"] == "Collaudo" for c in ch2["changes"]) and len(ch2["changes"]) < len(ch["changes"]))
+        st, ch2 = api(SUP, "config", kind="changes"); rec("config: il token limitato vede solo quelle del proprio perimetro", st == 200 and all(c["site"] == "" or c["site"] == "Collaudo" for c in ch2["changes"]) and len(ch2["changes"]) < len(ch["changes"]) and any(c["op"] == "check_add" and c["site"] == "" for c in ch2["changes"]), [(c["op"], c["site"]) for c in ch2["changes"]])
         rec("approvare serve il ruolo admin: l'operatore non applica", True)
 
         # --- connettore remoto

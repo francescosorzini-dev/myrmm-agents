@@ -1,4 +1,4 @@
-# myrmm v1.70.0 — manuale
+# myrmm v1.71.0 — manuale
 
 RMM (Remote Monitoring & Management) leggero per gestire flotte di PC e server di più clienti, pensato per
 girare su un **hosting condiviso Apache/PHP con SQLite**: nessun processo sempre attivo, nessun cron,
@@ -997,6 +997,17 @@ Obiettivo: l'AI superiore può impostare ed eseguire tutto ciò che una persona 
 - **Non coperto.** Trasferimento file e gestione attività in streaming, esecuzione di gruppo, creazione/rinomina di clienti, ogni eliminazione, le funzioni di amministrazione.
 - **Test.** `ci/ops_test.py` (102 controlli).
 
+## 8.70 Autonomia dei token e operazioni amministrative (1.71.0)
+
+Obiettivo: far svolgere all'AI superiore anche il ruolo dell'amministratore, **con o senza conferma**, scegliendo per ogni token fin dove può arrivare.
+
+- **Matrice di autonomia.** Ogni token può avere una matrice (colonna `api_tokens.autonomy`): per ognuna di 10 categorie (dati, device, configurazione, ordini, alimentazione, patch, eliminazioni, utenti, clienti, irreversibili) il livello è *vietata*, *con conferma* (la richiesta resta in «Incarichi AI → Modifiche in attesa di approvazione» o, per i job, in «In attesa della tua approvazione») o *diretta*. Preset nel modulo di creazione: «Come la scrittura» (le regole 0/1/2 di prima, invariate), «Tutto con conferma», «Tutto diretto» (gli irreversibili restano con conferma) e «Personalizzata». Gli stessi livelli governano le operazioni del catalogo, `run`, servizi, riavvio/spegnimento e patch; senza matrice nulla cambia.
+- **Operazioni amministrative** (solo con matrice; `myrmm_list_ops` mostra la categoria e il livello per quel token): eliminazioni di ticket, asset e documenti (nel cestino, ripristinabili), script, pianificazioni, controlli, regole, variabili, runbook e loro programmazioni, filtri, policy patch e finestre di manutenzione; `site_create`, `site_rename`; `user_set` (ruolo viewer/operator, clienti, abilitazione); `token_revoke`, `token_purge`; `group_run` (script di libreria su fino a 50 device di un cliente, simulazione predefinita); irreversibili `device_delete`, `agent_uninstall`, `site_delete`, `user_delete`. 54 operazioni in tutto; letture nuove `myrmm_get_config kind=tokens|users` (senza hash né segreti).
+- **Limiti che restano.** Gli amministratori non si modificano né si creano da API; password e token non si leggono né si creano dall'AI; con operazioni amministrative dirette la scadenza del token è al massimo 30 giorni. Non coperti: trasferimento file e task manager (flussi in tempo reale con l'agent), unione di due clienti, impostazioni del server (posta, backup, licenze, 2FA).
+- **«Ferma tutte le AI».** Un pulsante in «API e collaudo» (meta `ai_pause`) trasforma ogni azione diretta in una richiesta da approvare, senza toccare i token; vale anche per i token senza matrice. `me` e `myrmm_list_ops` mostrano `paused`.
+- **Pulizia dei token.** I token revocati o scaduti si tolgono dall'elenco uno alla volta («Rimuovi») o tutti insieme («Rimuovi revocati e scaduti»); da AI con `token_purge`. I job in attesa di un token revocato erano già annullati.
+- **Test.** `ci/autonomy_test.py` (91 controlli): creazione e rifiuti, catalogo per token, ask/do, eliminazioni con cestino, clienti, utenti, token, irreversibili, ordini e gruppo, pausa, connettore, audit.
+
 ## 9. Controllo remoto (RustDesk)
 
 Orchestrazione, non un componente proprietario. Due script in libreria:
@@ -1159,6 +1170,7 @@ dist/                        binari di tutte le piattaforme (prodotti da release
 
 ## 17. Cronologia
 
+- **1.71.0** — **Autonomia dei token e amministrazione** (§8.70): matrice di autonomia per token (vietata / con conferma / diretta per 10 categorie, preset e personalizzata); 23 nuove operazioni (eliminazioni con cestino, clienti, utenti, token, gruppo, irreversibili); «Ferma tutte le AI»; rimozione dei token revocati e scaduti dall'elenco; `ci/autonomy_test.py`.
 - **1.70.0** — **Operazioni generiche dell'AI superiore** (§8.69): alias dei PC e tutto ciò che si fa a mano in console tranne l'amministrazione; operazioni dirette o in coda di approvazione («Incarichi AI → Modifiche in attesa di approvazione»); 4 nuovi strumenti (44 in tutto); corretto l'aggiornamento di un documento che azzerava categoria e cliente se omessi; `ci/ops_test.py`.
 - **1.69.0** — **Ordini dell'AI superiore** (§8.68): runbook, servizi, riavvio/spegnimento (sempre con approvazione), patch, ticket e asset (lettura e creazione, senza password), pianificazioni e regole in lettura; 16 nuovi strumenti (40 in tutto) su connettore remoto, server MCP Go e Python; guida per l'assistente; `ci/orders_test.py`.
 - **1.68.0** — **Incarichi AI** (coda nell'RMM tra un'AI che scrive e un'AI che esegue, con approvazione fuori dal collaudo, cronologia e audit) e **connettore MCP remoto** HTTPS (§8.67); 7 strumenti MCP nuovi (24 in tutto).

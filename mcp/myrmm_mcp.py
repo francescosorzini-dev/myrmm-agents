@@ -180,7 +180,7 @@ TOOLS = {
     "myrmm_list_rules": ("Regole di monitoraggio e risposta automatica (sola lettura, solo token senza limiti di cliente).", obj(), t_rules),
     "myrmm_list_ops": ("Catalogo delle operazioni che puoi eseguire come farebbe una persona dalla console (alias, reparto, manutenzione, alert, ticket, asset, documenti, script, pianificazioni, controlli, regole, variabili, runbook, patch, filtri…), con parametri e se servono approvazioni. Leggilo prima di usare myrmm_do.", obj(), t_ops),
     "myrmm_do": ("Esegue un'operazione del catalogo (op) con i suoi params. Le modifiche reversibili del tuo perimetro si applicano subito; la configurazione globale (script, regole, controlli, variabili, runbook, policy patch, spostamenti…) resta in attesa dell'approvazione di un amministratore e risponde status=held con change_id.", obj({"op": {"type": "string", "description": "nome da myrmm_list_ops"}, "params": {"type": "object", "description": "parametri dell'operazione"}}, ["op"]), t_do),
-    "myrmm_get_config": ("Legge una configurazione: checks, variables (i segreti sono mascherati), filters, patch_policies, maintenance, departments, docs, changes (le tue modifiche in attesa e il loro esito). Le impostazioni globali richiedono un token senza limiti di cliente.", obj({"kind": {"type": "string", "description": "checks, variables, filters, patch_policies, maintenance, departments, docs, changes"}}, ["kind"]), t_config),
+    "myrmm_get_config": ("Legge una configurazione: checks, variables (i segreti sono mascherati), filters, patch_policies, maintenance, departments, docs, changes (le tue modifiche in attesa e il loro esito), tokens (token API con stato e autonomia, senza segreti), users. Le impostazioni globali richiedono un token senza limiti di cliente.", obj({"kind": {"type": "string", "description": "checks, variables, filters, patch_policies, maintenance, departments, docs, changes, tokens, users"}}, ["kind"]), t_config),
     "myrmm_get_doc": ("Un documento della base di conoscenza con il testo.", obj({"id": I}, ["id"]), t_doc),
 }
 
@@ -189,7 +189,7 @@ def handle(m):
     meth, mid, p = m.get("method"), m.get("id"), m.get("params") or {}
     if mid is None: return None   # notifiche
     if meth == "initialize":
-        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.70.0"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
+        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.71.0"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
     if meth == "ping": return {}
     if meth == "tools/list":
         return {"tools": [{"name": n, "description": d, "inputSchema": s} for n, (d, s, _) in TOOLS.items()]}
