@@ -190,7 +190,7 @@ try:
 
         # --- 6. connettore MCP remoto
         st, j = rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, URL); names = [t["name"] for t in j["result"]["tools"]]
-        rec("MCP remoto: 40 strumenti con quelli degli ordini", len(names) == 40 and {"myrmm_run_runbook", "myrmm_service", "myrmm_power", "myrmm_patch_install", "myrmm_create_ticket", "myrmm_create_asset", "myrmm_list_rules"} <= set(names), names)
+        rec("MCP remoto: 44 strumenti con quelli degli ordini", len(names) == 44 and {"myrmm_run_runbook", "myrmm_service", "myrmm_power", "myrmm_patch_install", "myrmm_create_ticket", "myrmm_create_asset", "myrmm_list_rules"} <= set(names), names)
         st, j = tool(URL, "myrmm_service", {"device_id": dev["C-WIN"], "service": "Spooler", "op": "restart", "wait": 0}, 2); rec("MCP remoto: servizio sul collaudo", st == 200 and j["status"] == "pending" and not j["_err"], j)
         st, j = tool(URL, "myrmm_power", {"device_id": dev["C-WIN"], "op": "reboot"}, 3); rec("MCP remoto: riavvio in attesa di approvazione", st == 200 and j["status"] == "held" and "approval" in j["note"], j)
         st, j = tool(URL, "myrmm_create_ticket", {"title": "Via MCP", "device_id": dev["C-WIN"]}, 4); rec("MCP remoto: apre un ticket", st == 200 and j.get("code"), j)

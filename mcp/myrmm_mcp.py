@@ -124,6 +124,10 @@ def t_asset(a): return call("asset", id=a.get("id"))
 def t_asset_create(a): return _post("asset_create", a, ("type", "type_id", "name", "site", "device_id", "location", "serial", "model", "status", "purchased", "expiry", "fields"))
 def t_schedules(a): return call("schedules", limit=a.get("limit"))
 def t_rules(a): return call("rules")
+def t_ops(a): return call("ops")
+def t_do(a): return _post("op", a, ("op", "params"))
+def t_config(a): return call("config", kind=a.get("kind"))
+def t_doc(a): return call("doc", id=a.get("id"))
 
 
 TOOLS = {
@@ -174,6 +178,10 @@ TOOLS = {
     "myrmm_create_asset": ("Crea un asset: type o type_id, name, site (o device_id), facoltativi location, serial, model, status (attivo, scorta, dismesso), purchased e expiry (AAAA-MM-GG), fields {chiave: valore} per i campi del tipo. Le password le inserisce una persona dalla console.", obj({"type": S, "type_id": I, "name": S, "site": S, "device_id": I, "location": S, "serial": S, "model": S, "status": S, "purchased": S, "expiry": S, "fields": {"type": "object"}}, ["name"]), t_asset_create),
     "myrmm_list_schedules": ("Pianificazioni di script sui device e di runbook (sola lettura).", obj({"limit": I}), t_schedules),
     "myrmm_list_rules": ("Regole di monitoraggio e risposta automatica (sola lettura, solo token senza limiti di cliente).", obj(), t_rules),
+    "myrmm_list_ops": ("Catalogo delle operazioni che puoi eseguire come farebbe una persona dalla console (alias, reparto, manutenzione, alert, ticket, asset, documenti, script, pianificazioni, controlli, regole, variabili, runbook, patch, filtri…), con parametri e se servono approvazioni. Leggilo prima di usare myrmm_do.", obj(), t_ops),
+    "myrmm_do": ("Esegue un'operazione del catalogo (op) con i suoi params. Le modifiche reversibili del tuo perimetro si applicano subito; la configurazione globale (script, regole, controlli, variabili, runbook, policy patch, spostamenti…) resta in attesa dell'approvazione di un amministratore e risponde status=held con change_id.", obj({"op": {"type": "string", "description": "nome da myrmm_list_ops"}, "params": {"type": "object", "description": "parametri dell'operazione"}}, ["op"]), t_do),
+    "myrmm_get_config": ("Legge una configurazione: checks, variables (i segreti sono mascherati), filters, patch_policies, maintenance, departments, docs, changes (le tue modifiche in attesa e il loro esito). Le impostazioni globali richiedono un token senza limiti di cliente.", obj({"kind": {"type": "string", "description": "checks, variables, filters, patch_policies, maintenance, departments, docs, changes"}}, ["kind"]), t_config),
+    "myrmm_get_doc": ("Un documento della base di conoscenza con il testo.", obj({"id": I}, ["id"]), t_doc),
 }
 
 
@@ -181,7 +189,7 @@ def handle(m):
     meth, mid, p = m.get("method"), m.get("id"), m.get("params") or {}
     if mid is None: return None   # notifiche
     if meth == "initialize":
-        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.69.0"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
+        return {"protocolVersion": p.get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "myrmm", "version": "1.70.0"}, "instructions": NOTE + " Prima di agire leggi le linee guida con lo strumento myrmm_guidelines e lo stato con myrmm_status: scrivi solo sui clienti di collaudo, prima in simulazione, e non toccare nulla che l'operatore non abbia chiesto."}
     if meth == "ping": return {}
     if meth == "tools/list":
         return {"tools": [{"name": n, "description": d, "inputSchema": s} for n, (d, s, _) in TOOLS.items()]}
@@ -190,7 +198,7 @@ def handle(m):
         if n not in TOOLS: return {"__error": (-32602, "strumento sconosciuto: %s" % n)}
         st, j = TOOLS[n][2](a)
         txt = json.dumps(j, ensure_ascii=False, indent=1)
-        return {"content": [{"type": "text", "text": txt + ("\n\n" + NOTE if n in ("myrmm_run_script", "myrmm_run_draft", "myrmm_run_inline", "myrmm_get_job", "myrmm_get_device", "myrmm_task_list", "myrmm_task_get", "myrmm_task_answer", "myrmm_task_next", "myrmm_task_report", "myrmm_run_runbook", "myrmm_service", "myrmm_list_patches", "myrmm_patch_scan", "myrmm_list_tickets", "myrmm_get_ticket", "myrmm_list_assets", "myrmm_get_asset") else "")}], "isError": st != 200}
+        return {"content": [{"type": "text", "text": txt + ("\n\n" + NOTE if n in ("myrmm_run_script", "myrmm_run_draft", "myrmm_run_inline", "myrmm_get_job", "myrmm_get_device", "myrmm_task_list", "myrmm_task_get", "myrmm_task_answer", "myrmm_task_next", "myrmm_task_report", "myrmm_run_runbook", "myrmm_service", "myrmm_list_patches", "myrmm_patch_scan", "myrmm_list_tickets", "myrmm_get_ticket", "myrmm_list_assets", "myrmm_get_asset", "myrmm_get_config", "myrmm_get_doc") else "")}], "isError": st != 200}
     return {"__error": (-32601, "metodo non supportato: %s" % meth)}
 
 

@@ -181,7 +181,7 @@ try:
         rec("MCP remoto: initialize", st == 200 and j["result"]["serverInfo"]["name"] == "myrmm" and j["result"]["protocolVersion"] == "2025-03-26" and "capabilities" in j["result"], (st, j))
         st, j = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, URL)
         names = [t["name"] for t in j["result"]["tools"]] if st == 200 else []
-        rec("MCP remoto: 40 strumenti, compresi gli incarichi", len(names) == 40 and {"myrmm_task_next", "myrmm_task_report", "myrmm_task_create", "myrmm_run_inline"} <= set(names), names)
+        rec("MCP remoto: 44 strumenti, compresi gli incarichi", len(names) == 44 and {"myrmm_task_next", "myrmm_task_report", "myrmm_task_create", "myrmm_run_inline"} <= set(names), names)
         rec("MCP remoto: schema degli strumenti valido", all(t["inputSchema"]["type"] == "object" for t in j["result"]["tools"]))
         rec("MCP remoto: notifica senza risposta (202)", rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}, URL)[0] == 202)
         rec("MCP remoto: ping", rpc({"jsonrpc": "2.0", "id": 3, "method": "ping"}, URL)[1]["result"] == {})
@@ -197,7 +197,7 @@ try:
         rec("MCP remoto: token sbagliato 401", st == 401 and j["error"]["code"] == -32001, (st, j))
         rec("MCP remoto: senza token 401", rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, BASE + "?action=mcp_http")[0] == 401)
         st, j = rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, BASE + "?action=mcp_http", {"Authorization": "Bearer " + LOC})
-        rec("MCP remoto: token anche nell'header Bearer", st == 200 and len(j["result"]["tools"]) == 40)
+        rec("MCP remoto: token anche nell'header Bearer", st == 200 and len(j["result"]["tools"]) == 44)
         st, j = rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, BASE + "?action=mcp_http", {"X-Api-Token": LOC})
         rec("MCP remoto: token anche in X-Api-Token", st == 200)
         st, j = rpc([{"jsonrpc": "2.0", "id": 1, "method": "ping"}, {"jsonrpc": "2.0", "method": "notifications/initialized"}, {"jsonrpc": "2.0", "id": 2, "method": "ping"}], URL)
